@@ -19,7 +19,7 @@ This is a research-style project combining:
 
 ---
 
-Project Motivation
+## Project Motivation
 
 Liquidity routing on decentralized ledgers can be modeled as a graph problem:
 	•	Nodes = currencies
@@ -35,7 +35,7 @@ This project aims to bridge theory and practical market behavior.
 
 ---
 
-Core Features
+## Core Features
 
 1. XRPL Data Integration
 	•	Connects to XRPL Testnet via xrpl-py
@@ -89,32 +89,32 @@ No real transactions are executed (paper trading only).
 
 ---
 
-Project Structure
+## Project Structure
 
-xrpl_router/
+xrpl_router/\
 │
-├── config.py
-├── xrpl_client.py
-├── orderbooks.py
-├── graph.py
-├── routing.py
-├── arbitrage.py
-├── simulate.py
-├── strategy.py
-├── cli.py
+├── config.py\
+├── xrpl_client.py\
+├── orderbooks.py\
+├── graph.py\
+├── routing.py\
+├── arbitrage.py\
+├── simulate.py\
+├── strategy.py\
+├── cli.py\
 │
 └── tests/
 
 
 ---
 
-Installation
+## Installation
 
-git clone 
-cd xrpl-router
+git clone \
+cd xrpl-router\
 pip install -r requirements.txt
 
-Dependencies:
+## Dependencies:
 	•	Python 3.10+
 	•	xrpl-py
 	•	networkx (optional)
@@ -122,9 +122,9 @@ Dependencies:
 
 ---
 
-Usage
+## Usage
 
-Route Optimization
+### Route Optimization
 
 python -m xrpl_router.cli route \
   --from CAD \
@@ -140,7 +140,7 @@ Effective Rate: 0.9784
 
 ---
 
-Arbitrage Scan
+### Arbitrage Scan
 
 python -m xrpl_router.cli arbitrage
 
@@ -153,7 +153,7 @@ Estimated Profit: 0.42%
 
 ---
 
-Greedy Agent Simulation
+### Greedy Agent Simulation
 
 python -m xrpl_router.cli simulate \
   --asset USD \
@@ -168,7 +168,7 @@ Sharpe Ratio (simulated): 0.84
 
 ---
 
-Configuration
+### Configuration
 
 Edit config.py:
 
@@ -181,7 +181,7 @@ BOOK_DEPTH = 20
 
 ---
 
-Algorithms Used
+## Algorithms Used
 
 Routing:
 	•	Dijkstra (O(E log V))
@@ -199,7 +199,7 @@ Optional extensions:
 
 ---
 
-Design Principles
+## Design Principles
 	•	Modular and testable
 	•	Deterministic simulation mode
 	•	No assumption of infinite liquidity
@@ -208,7 +208,7 @@ Design Principles
 
 ---
 
-Limitations
+## Limitations
 	•	Uses XRPL Testnet only
 	•	No real transaction submission
 	•	No latency modeling
@@ -217,7 +217,7 @@ Limitations
 
 ---
 
-Future Work
+## Future Work
 	•	Async streaming order book updates
 	•	Multi-path splitting via min-cost flow
 	•	Risk modeling using historical volatility
@@ -226,7 +226,7 @@ Future Work
 
 ---
 
-Educational Value
+## Educational Value
 
 This project demonstrates how:
 	•	Financial markets map to graph theory
@@ -238,7 +238,7 @@ It is designed as both a research prototype and a learning tool.
 
 ---
 
-Disclaimer
+## Disclaimer
 
 This project is for educational and research purposes only.
 It does not execute real trades and should not be considered financial advice.
