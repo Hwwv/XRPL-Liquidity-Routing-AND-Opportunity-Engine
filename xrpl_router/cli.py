@@ -6,22 +6,19 @@ import logging
 import sys
 
 from .config import (
-    get_json_rpc_url,
     DEFAULT_BOOK_PAIRS,
     MAX_HOPS,
     MAX_PATHS,
     TRADING_FEE,
     BOOK_DEPTH,
     LOG_LEVEL,
-    XRPL_NETWORK,
+    DEFAULT_ISSUER,
 )
-from . import xrpl_client
-from .orderbooks import fetch_order_book
-from .graph import build_graph_from_pairs
+from .loader import get_graph
 from .routing import dijkstra_best_path
 from .simulate import simulate_path
 from .arbitrage import scan_arbitrage
-from .strategy import evaluate_routes, greedy_agent_step
+from .strategy import greedy_agent_step
 
 
 def _asset_key(currency: str, issuer: str | None) -> str:
@@ -48,17 +45,10 @@ def _setup_logging(verbose: bool) -> None:
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
 
-def _build_graph(client, pairs: list | None = None):
-    pairs = pairs or DEFAULT_BOOK_PAIRS
-    return build_graph_from_pairs(pairs, fetch_order_book, client, limit_per_book=BOOK_DEPTH)
-
-
 def cmd_route(args: argparse.Namespace) -> int:
     """Mode A: Route optimization."""
     _setup_logging(args.verbose)
-    from .config import DEFAULT_ISSUER
-    client = xrpl_client.get_client()
-    graph = _build_graph(client)
+    graph = get_graph(use_mock=getattr(args, "mock", False))
     source = _resolve_asset(args.source_asset, DEFAULT_ISSUER)
     target = _resolve_asset(args.target_asset, DEFAULT_ISSUER)
     amount = float(args.amount)
@@ -80,8 +70,7 @@ def cmd_route(args: argparse.Namespace) -> int:
 def cmd_arbitrage(args: argparse.Namespace) -> int:
     """Mode B: Arbitrage scan."""
     _setup_logging(args.verbose)
-    client = xrpl_client.get_client()
-    graph = _build_graph(client)
+    graph = get_graph(use_mock=getattr(args, "mock", False))
     if not graph:
         print("No order book data; cannot build graph.", file=sys.stderr)
         return 1
@@ -100,9 +89,7 @@ def cmd_arbitrage(args: argparse.Namespace) -> int:
 def cmd_simulate(args: argparse.Namespace) -> int:
     """Mode C: Greedy agent simulation."""
     _setup_logging(args.verbose)
-    from .config import DEFAULT_ISSUER
-    client = xrpl_client.get_client()
-    graph = _build_graph(client)
+    graph = get_graph(use_mock=getattr(args, "mock", False))
     if not graph:
         print("No order book data; cannot build graph.", file=sys.stderr)
         return 1
@@ -147,16 +134,19 @@ def main() -> int:
     route_p.add_argument("--from", dest="source_asset", required=True, metavar="ASSET", help="Source asset (e.g. XRP, USD)")
     route_p.add_argument("--to", dest="target_asset", required=True, metavar="ASSET", help="Target asset")
     route_p.add_argument("--amount", type=float, default=100.0, help="Amount to convert")
+    route_p.add_argument("--mock", action="store_true", help="Use mock data (no network)")
     route_p.set_defaults(func=cmd_route)
 
     arb_p = sub.add_parser("arbitrage", help="Mode B: Scan for arbitrage cycles")
     arb_p.add_argument("--trial-amount", type=float, default=1000, help="Trial amount for profit estimate")
+    arb_p.add_argument("--mock", action="store_true", help="Use mock data (no network)")
     arb_p.set_defaults(func=cmd_arbitrage)
 
     sim_p = sub.add_parser("simulate", help="Mode C: Greedy agent simulation")
     sim_p.add_argument("--asset", default="XRP", help="Initial asset")
     sim_p.add_argument("--amount", type=float, default=1000, help="Initial amount")
     sim_p.add_argument("--steps", type=int, default=20, help="Time steps")
+    sim_p.add_argument("--mock", action="store_true", help="Use mock data (no network)")
     sim_p.set_defaults(func=cmd_simulate)
 
     args = parser.parse_args()

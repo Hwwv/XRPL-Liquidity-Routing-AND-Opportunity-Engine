@@ -4,6 +4,73 @@ A Python engine that connects to the XRP Ledger, fetches order books, builds a l
 
 ---
 
+## Environment setup (all commands)
+
+Use these commands from the project root to create a virtual environment, install dependencies, and verify the setup.
+
+**Linux / macOS (bash/zsh):**
+
+```bash
+# 1. Go to project root
+cd XRPL-Liquidity-Routing-AND-Opportunity-Engine
+
+# 2. Create and activate a virtual environment (optional but recommended)
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Upgrade pip
+pip install --upgrade pip
+
+# 4. Install dependencies
+pip install -r requirements.txt
+
+# 5. Verify (run tests)
+python -m unittest discover -s xrpl_router/tests -v
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# 1. Go to project root
+cd XRPL-Liquidity-Routing-AND-Opportunity-Engine
+
+# 2. Create and activate a virtual environment (optional but recommended)
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# 3. Upgrade pip
+pip install --upgrade pip
+
+# 4. Install dependencies
+pip install -r requirements.txt
+
+# 5. Verify (run tests)
+python -m unittest discover -s xrpl_router/tests -v
+```
+
+**One-liner (if you already have the repo and want to install only):**
+
+```bash
+pip install -r requirements.txt
+```
+
+**Automated setup (Linux/macOS):** from project root run `./setup.sh` to create `.venv`, install deps, and run tests.
+
+**Requirements:** Python 3.10+, `xrpl-py`, `networkx`, `pytest`, `streamlit` (see `requirements.txt`).
+
+**Quick run commands after setup:**
+
+| What | Command |
+|------|--------|
+| CLI (mock) | `python -m xrpl_router.cli route --from XRP --to USD --amount 100 --mock` |
+| CLI (live) | `python -m xrpl_router.cli route --from XRP --to USD --amount 100` |
+| Arbitrage | `python -m xrpl_router.cli arbitrage [--mock]` |
+| Simulate | `python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 5 [--mock]` |
+| Web UI | `streamlit run app.py` |
+| Tests | `python -m unittest discover -s xrpl_router/tests -v` |
+
+---
+
 ## Features
 
 - **Data layer**: XRPL Testnet/Devnet via `xrpl-py`, `book_offers`, normalized order book levels (rate, capacity).
@@ -43,6 +110,37 @@ Optional: `LOG_LEVEL=DEBUG` for verbose logs.
 
 ---
 
+## Mock mode (no network)
+
+Use **mock data** to run the full pipeline without connecting to XRPL (deterministic, for tests and UI).
+
+- **CLI:** add `--mock` to any command.
+- **UI:** check "Use mock data (no network)" in the sidebar.
+- **Code:** `get_graph(use_mock=True)` in `xrpl_router.loader`.
+
+```bash
+python -m xrpl_router.cli route --from XRP --to USD --amount 100 --mock
+python -m xrpl_router.cli arbitrage --mock
+python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 5 --mock
+```
+
+Full-stack tests use the mock: `python -m unittest discover -s xrpl_router/tests -v`.
+
+---
+
+## Web UI
+
+A Streamlit UI lets you run Route, Arbitrage, and Simulate from the browser.
+
+```bash
+pip install -r requirements.txt   # includes streamlit
+streamlit run app.py
+```
+
+Then open the URL shown (e.g. http://localhost:8501). Use the sidebar to switch **Mode** (Route / Arbitrage / Simulate) and to enable **Use mock data (no network)** for testing without XRPL.
+
+---
+
 ## Installation
 
 ```bash
@@ -51,7 +149,7 @@ cd XRPL-Liquidity-Routing-AND-Opportunity-Engine
 pip install -r requirements.txt
 ```
 
-**Requirements:** Python 3.10+, `xrpl-py`, `networkx` (optional). No real transactions are sent (paper trading only).
+**Requirements:** Python 3.10+, `xrpl-py`, `networkx`, `streamlit` (for UI). No real transactions are sent (paper trading only).
 
 ---
 
