@@ -32,6 +32,42 @@ from xrpl_router.arbitrage import scan_arbitrage
 from xrpl_router.strategy import greedy_agent_step
 
 
+def generate_graph_dot(graph: dict, path: list = None) -> str:
+    """Generate GraphViz DOT string for the liquidity graph, highlighting the path if provided."""
+    dot_lines = ["digraph LiquidityGraph {"]
+    dot_lines.append("  rankdir=LR;")  # Left to right layout
+    dot_lines.append("  node [shape=circle];")
+    
+    # Collect all nodes
+    nodes = set(graph.keys())
+    for edges in graph.values():
+        for edge in edges:
+            nodes.add(edge.dst)
+    
+    # Add nodes
+    for node in sorted(nodes):
+        dot_lines.append(f'  "{node}" [label="{node}"];')
+    
+    # Add edges
+    path_edges = set()
+    if path:
+        for i in range(len(path) - 1):
+            path_edges.add((path[i], path[i+1]))
+    
+    for from_asset, edges in graph.items():
+        for edge in edges:
+            to_asset = edge.dst
+            rate = edge.best_rate()
+            if rate is not None:
+                label = f"{rate:.4f} (fee:{TRADING_FEE:.4f})"
+                color = "red" if (from_asset, to_asset) in path_edges else "black"
+                penwidth = "3" if (from_asset, to_asset) in path_edges else "1"
+                dot_lines.append(f'  "{from_asset}" -> "{to_asset}" [label="{label}", color={color}, penwidth={penwidth}];')
+    
+    dot_lines.append("}")
+    return "\n".join(dot_lines)
+
+
 def _asset_key(currency: str, issuer: str | None) -> str:
     if currency.upper() == "XRP":
         return "XRP"
@@ -56,7 +92,7 @@ st.title("XRPL Liquidity Routing & Opportunity Engine")
 st.caption("Route optimization, arbitrage scan, and greedy agent simulation (paper trading only).")
 
 use_mock = st.sidebar.checkbox("Use mock data (no network)", value=True, help="Deterministic data for testing without XRPL.")
-mode = st.sidebar.radio("Mode", ["Route", "Arbitrage", "Simulate"], horizontal=True)
+mode = st.sidebar.radio("Mode", ["Route", "Arbitrage", "Simulate", "Visualization", "Comparison"], horizontal=True)
 
 if mode == "Route":
     st.header("Route optimization")
@@ -104,7 +140,7 @@ elif mode == "Arbitrage":
                 st.metric("Profit (absolute)", f"{report.profit_absolute:.2f}")
                 st.metric("Confidence", f"{report.confidence:.2f}")
 
-else:
+elif mode == "Simulate":
     st.header("Greedy agent simulation")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -146,6 +182,84 @@ else:
                 ret = (growth[-1] - growth[0]) / growth[0] if growth[0] else 0
                 st.metric("Total return", f"{ret:.2%}")
                 st.line_chart({"Portfolio value": growth})
+
+elif mode == "Visualization":
+    st.header("Graph Visualization")
+    col1, col2 = st.columns(2)
+    with col1:
+        source = st.text_input("From asset", value="XRP", key="vis_source")
+    with col2:
+        target = st.text_input("To asset", value="USD", key="vis_target")
+    if st.button("Visualize path"):
+        with st.spinner("Building graph..."):
+            graph = get_graph(use_mock=use_mock)
+        if not graph:
+            st.error("No order book data.")
+        else:
+            src = _resolve_asset(source)
+            tgt = _resolve_asset(target)
+            result = dijkstra_best_path(graph, src, tgt)
+            if result is None:
+                st.warning(f"No path from {source} to {target}.")
+            else:
+                dot = generate_graph_dot(graph, result.path)
+                st.graphviz_chart(dot)
+                st.success(f"Best path: {' → '.join(result.path)}")
+                sim = simulate_path(result.path, graph, 100.0, TRADING_FEE)
+                st.metric("Simulated output (100 input)", f"{sim.output_amount:.4f}")
+
+elif mode == "Comparison":
+    st.header("Strategy Comparison")
+    col1, col2 = st.columns(2)
+    with col1:
+        asset = st.text_input("Initial asset", value="XRP", key="comp_asset")
+    with col2:
+        amount = st.number_input("Initial amount", min_value=0.01, value=1000.0, step=100.0, key="comp_amount")
+    steps = st.number_input("Simulation steps", min_value=1, value=10, step=1, key="comp_steps")
+    target = st.text_input("Target asset for route", value="USD", key="comp_target")
+    if st.button("Compare strategies"):
+        with st.spinner("Running comparison..."):
+            graph = get_graph(use_mock=use_mock)
+        if not graph:
+            st.error("No order book data.")
+        else:
+            a = _resolve_asset(asset)
+            tgt = _resolve_asset(target)
+            
+            # Route strategy: single conversion to target
+            route_result = dijkstra_best_path(graph, a, tgt)
+            route_value = 0
+            if route_result:
+                sim = simulate_path(route_result.path, graph, amount, TRADING_FEE)
+                route_value = sim.output_amount
+            
+            # Greedy strategy: simulate over steps
+            portfolio = {a: amount}
+            growth = [amount]
+            for _ in range(steps - 1):
+                choice, used = greedy_agent_step(graph, portfolio, fee_fraction=TRADING_FEE, max_hops=MAX_HOPS, max_paths=MAX_PATHS)
+                if choice is None or used == "" or choice.expected_value <= 0:
+                    break
+                amt = portfolio.get(used, 0)
+                if amt <= 0:
+                    break
+                portfolio[used] = 0.0
+                dest = choice.path[-1]
+                portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
+                growth.append(sum(portfolio.values()))
+            greedy_value = sum(portfolio.values())
+            
+            st.subheader("Results")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Route to target", f"{route_value:.2f}" if route_result else "No path")
+            with col2:
+                st.metric("Greedy simulation", f"{greedy_value:.2f}")
+            if route_result and greedy_value > 0:
+                diff = ((greedy_value - route_value) / route_value) * 100 if route_value else 0
+                st.metric("Greedy vs Route", f"{diff:+.2f}%")
+            if len(growth) > 1:
+                st.line_chart({"Greedy portfolio": growth})
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Network:** Testnet/Devnet (see `XRPL_NETWORK` env). Mock ignores network.")
