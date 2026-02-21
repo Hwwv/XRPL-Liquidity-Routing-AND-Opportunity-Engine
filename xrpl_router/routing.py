@@ -6,12 +6,12 @@ import math
 import heapq
 from typing import NamedTuple
 
-from .graph import MarketEdge
+from .graph import MarketEdge, Asset
 
 
 class PathResult(NamedTuple):
     """Best path and effective rate (product of rates), no slippage."""
-    path: list[str]
+    path: list[Asset]
     effective_rate: float
     weight: float  # sum of -log(rate)
 
@@ -23,10 +23,10 @@ def _weight(rate: float) -> float:
     return -math.log(rate)
 
 
-def _get_nodes_and_edges(graph: dict[str, list[MarketEdge]]):
+def _get_nodes_and_edges(graph: dict[Asset, list[MarketEdge]]):
     """Return set of nodes and list of (u, v, rate, weight)."""
     nodes = set(graph.keys())
-    edges: list[tuple[str, str, float, float]] = []
+    edges: list[tuple[Asset, Asset, float, float]] = []
     for u, edge_list in graph.items():
         for e in edge_list:
             nodes.add(e.dst)
@@ -38,9 +38,9 @@ def _get_nodes_and_edges(graph: dict[str, list[MarketEdge]]):
 
 
 def dijkstra_best_path(
-    graph: dict[str, list[MarketEdge]],
-    source: str,
-    target: str,
+    graph: dict[Asset, list[MarketEdge]],
+    source: Asset,
+    target: Asset,
 ) -> PathResult | None:
     """
     Best path from source to target using top-of-book rate per edge.
@@ -92,8 +92,8 @@ def dijkstra_best_path(
 
 
 def bellman_ford_negative_cycle(
-    graph: dict[str, list[MarketEdge]],
-) -> list[str] | None:
+    graph: dict[Asset, list[MarketEdge]],
+) -> list[Asset] | None:
     """
     Detect negative cycle in graph with weights -log(rate).
     O(VE). Returns one cycle (list of nodes) if found, else None.

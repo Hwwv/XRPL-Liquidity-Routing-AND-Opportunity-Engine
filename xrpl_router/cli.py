@@ -60,7 +60,7 @@ def cmd_route(args: argparse.Namespace) -> int:
         print(f"No path from {source} to {target}.", file=sys.stderr)
         return 1
     sim = simulate_path(result.path, graph, amount, TRADING_FEE)
-    print("Best Path:", " → ".join(result.path))
+    print("Best Path:", " → ".join(str(p) for p in result.path))
     print("Expected Output (no slippage):", f"{result.effective_rate * amount:.4f}")
     print("Simulated Output (with slippage/fees):", f"{sim.output_amount:.4f}")
     print("Effective Rate:", f"{sim.effective_rate:.4f}")

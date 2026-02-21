@@ -34,9 +34,12 @@ MAX_LEVELS_PER_EDGE: int = 20  # cap levels per edge when building graph
 
 # --- Simulation ---
 DEFAULT_SUCCESS_PROBABILITY: float = 0.95  # heuristic P(success) when not estimated
+FAILURE_PENALTY: float = 0.0  # penalty for failed trades (set to input amount or 0)
 
-# --- Logging ---
-LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO").upper()
+# --- Risk-aware scoring ---
+LAMBDA_HOPS: float = 0.01  # penalty per hop
+LAMBDA_SPREAD: float = 0.1  # penalty for spread
+LAMBDA_DEPTH: float = 0.05  # penalty for thin liquidity
 
 # --- Default order book pairs (src_currency, src_issuer, dst_currency, dst_issuer) ---
 # Testnet/Devnet common gateway issuer (ripple.com)

@@ -59,7 +59,7 @@ def main():
                     st.warning(f"No path from {source} to {target}.")
                 else:
                     sim = simulate_path(result.path, graph, amount, TRADING_FEE)
-                    st.success("Best path: **" + " → ".join(result.path) + "**")
+                    st.success("Best path: **" + " → ".join(str(p) for p in result.path) + "**")
                     st.metric("Expected output (no slippage)", f"{result.effective_rate * amount:.4f}")
                     st.metric("Simulated output (slippage + fees)", f"{sim.output_amount:.4f}")
                     st.metric("Effective rate", f"{sim.effective_rate:.4f}")
@@ -120,7 +120,7 @@ def main():
                 total = sum(portfolio.values())
                 st.success("Simulation complete")
                 st.metric("Final portfolio value", f"{total:.2f}")
-                st.json(portfolio)
+                st.json({str(asset): amount for asset, amount in portfolio.items()})
                 if len(growth) > 1:
                     ret = (growth[-1] - growth[0]) / growth[0] if growth[0] else 0
                     st.metric("Total return", f"{ret:.2%}")
