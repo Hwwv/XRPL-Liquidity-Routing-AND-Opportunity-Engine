@@ -14,12 +14,18 @@ from .config import (
     BOOK_DEPTH,
     LOG_LEVEL,
     DEFAULT_ISSUER,
+    STRATEGY_MODE,
 )
 from .loader import get_graph
 from .routing import dijkstra_best_path
 from .simulate import simulate_path
 from .arbitrage import scan_arbitrage
-from .strategy import AgentState, greedy_agent_step
+from .strategy import (
+    STRATEGY_EXTENDED_GREEDY,
+    STRATEGY_GREEDY,
+    AgentState,
+    greedy_agent_step,
+)
 
 
 def _asset_key(currency: str, issuer: str | None) -> str:
@@ -97,6 +103,7 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     asset = _resolve_asset(args.asset, DEFAULT_ISSUER)
     amount = float(args.amount)
     steps = int(args.steps)
+    strategy_mode = args.strategy
     portfolio: dict[str, float] = {asset: amount}
     growth: list[float] = [amount]
     state = AgentState()
@@ -109,6 +116,7 @@ def cmd_simulate(args: argparse.Namespace) -> int:
             max_paths=MAX_PATHS,
             step=t,
             state=state,
+            strategy_mode=strategy_mode,
         )
         if choice is None or used == "":
             break
@@ -123,6 +131,7 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     total_value = sum(portfolio.values())
     print("Final Portfolio:", portfolio)
     print("Final Portfolio Value:", f"{total_value:.2f}")
+    print("Strategy Mode:", strategy_mode)
     if len(growth) > 1:
         returns = (growth[-1] - growth[0]) / growth[0] if growth[0] else 0
         print("Growth Curve (value per step):", [round(g, 2) for g in growth])
@@ -172,6 +181,12 @@ def main() -> int:
     sim_p.add_argument("--asset", default="XRP", help="Initial asset")
     sim_p.add_argument("--amount", type=float, default=1000, help="Initial amount")
     sim_p.add_argument("--steps", type=int, default=20, help="Time steps")
+    sim_p.add_argument(
+        "--strategy",
+        choices=[STRATEGY_GREEDY, STRATEGY_EXTENDED_GREEDY],
+        default=STRATEGY_MODE,
+        help="Strategy mode",
+    )
     sim_p.add_argument("--mock", action="store_true", help="Use mock data (no network)")
     sim_p.set_defaults(func=cmd_simulate)
 
