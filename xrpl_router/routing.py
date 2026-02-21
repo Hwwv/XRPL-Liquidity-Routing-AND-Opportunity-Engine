@@ -2,6 +2,7 @@
 Routing engine: Dijkstra (best path by rate) and Bellman-Ford (negative cycle = arbitrage).
 Weights: -log(rate) so that shortest path = best product of rates.
 """
+
 import math
 import heapq
 from typing import NamedTuple
@@ -11,6 +12,7 @@ from .graph import MarketEdge, Asset
 
 class PathResult(NamedTuple):
     """Best path and effective rate (product of rates), no slippage."""
+
     path: list[Asset]
     effective_rate: float
     weight: float  # sum of -log(rate)

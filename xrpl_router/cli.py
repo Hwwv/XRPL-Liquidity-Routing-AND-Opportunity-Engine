@@ -1,6 +1,7 @@
 """
 CLI: Mode A (route), Mode B (arbitrage), Mode C (greedy agent simulation).
 """
+
 import argparse
 import logging
 import sys
@@ -18,7 +19,7 @@ from .loader import get_graph
 from .routing import dijkstra_best_path
 from .simulate import simulate_path
 from .arbitrage import scan_arbitrage
-from .strategy import greedy_agent_step
+from .strategy import AgentState, greedy_agent_step
 
 
 def _asset_key(currency: str, issuer: str | None) -> str:
@@ -98,14 +99,18 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     steps = int(args.steps)
     portfolio: dict[str, float] = {asset: amount}
     growth: list[float] = [amount]
+    state = AgentState()
     for t in range(steps):
         choice, used = greedy_agent_step(
-            graph, portfolio,
+            graph,
+            portfolio,
             fee_fraction=TRADING_FEE,
             max_hops=MAX_HOPS,
             max_paths=MAX_PATHS,
+            step=t,
+            state=state,
         )
-        if choice is None or used == "" or choice.expected_value <= 0:
+        if choice is None or used == "":
             break
         amt = portfolio.get(used, 0)
         if amt <= 0:
@@ -126,19 +131,40 @@ def cmd_simulate(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="XRPL Liquidity Routing & Opportunity Engine")
+    parser = argparse.ArgumentParser(
+        description="XRPL Liquidity Routing & Opportunity Engine"
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    route_p = sub.add_parser("route", help="Mode A: Find best route from source to target")
-    route_p.add_argument("--from", dest="source_asset", required=True, metavar="ASSET", help="Source asset (e.g. XRP, USD)")
-    route_p.add_argument("--to", dest="target_asset", required=True, metavar="ASSET", help="Target asset")
-    route_p.add_argument("--amount", type=float, default=100.0, help="Amount to convert")
-    route_p.add_argument("--mock", action="store_true", help="Use mock data (no network)")
+    route_p = sub.add_parser(
+        "route", help="Mode A: Find best route from source to target"
+    )
+    route_p.add_argument(
+        "--from",
+        dest="source_asset",
+        required=True,
+        metavar="ASSET",
+        help="Source asset (e.g. XRP, USD)",
+    )
+    route_p.add_argument(
+        "--to", dest="target_asset", required=True, metavar="ASSET", help="Target asset"
+    )
+    route_p.add_argument(
+        "--amount", type=float, default=100.0, help="Amount to convert"
+    )
+    route_p.add_argument(
+        "--mock", action="store_true", help="Use mock data (no network)"
+    )
     route_p.set_defaults(func=cmd_route)
 
     arb_p = sub.add_parser("arbitrage", help="Mode B: Scan for arbitrage cycles")
-    arb_p.add_argument("--trial-amount", type=float, default=1000, help="Trial amount for profit estimate")
+    arb_p.add_argument(
+        "--trial-amount",
+        type=float,
+        default=1000,
+        help="Trial amount for profit estimate",
+    )
     arb_p.add_argument("--mock", action="store_true", help="Use mock data (no network)")
     arb_p.set_defaults(func=cmd_arbitrage)
 

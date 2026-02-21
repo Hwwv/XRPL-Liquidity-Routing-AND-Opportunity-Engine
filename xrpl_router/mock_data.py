@@ -2,6 +2,7 @@
 Mock order books and graph for full-stack testing without live XRPL.
 Deterministic data: same graph every time for route, arbitrage, and simulate tests.
 """
+
 from .orderbooks import Level
 from .graph import MarketEdge, Asset, build_graph_from_pairs
 from .config import DEFAULT_BOOK_PAIRS, DEFAULT_ISSUER, BOOK_DEPTH
@@ -17,11 +18,23 @@ def _asset_key(currency: str, issuer: str | None) -> str:
 # Rates chosen so no arbitrage: all cycles have product < 1 (e.g. USD->EUR 0.9, EUR->USD 1.05 => 0.945).
 _MOCK_BOOKS: dict[tuple[Asset, Asset], list[tuple[float, float]]] = {
     (Asset("XRP", None), Asset("USD", DEFAULT_ISSUER)): [(2.0, 1000.0), (1.95, 2000.0)],
-    (Asset("USD", DEFAULT_ISSUER), Asset("XRP", None)): [(0.48, 5000.0), (0.45, 3000.0)],
+    (Asset("USD", DEFAULT_ISSUER), Asset("XRP", None)): [
+        (0.48, 5000.0),
+        (0.45, 3000.0),
+    ],
     (Asset("XRP", None), Asset("EUR", DEFAULT_ISSUER)): [(1.8, 800.0), (1.75, 1500.0)],
-    (Asset("EUR", DEFAULT_ISSUER), Asset("XRP", None)): [(0.52, 5000.0), (0.50, 2000.0)],
-    (Asset("USD", DEFAULT_ISSUER), Asset("EUR", DEFAULT_ISSUER)): [(0.90, 3000.0), (0.88, 2000.0)],
-    (Asset("EUR", DEFAULT_ISSUER), Asset("USD", DEFAULT_ISSUER)): [(1.05, 3000.0), (1.03, 2000.0)],
+    (Asset("EUR", DEFAULT_ISSUER), Asset("XRP", None)): [
+        (0.52, 5000.0),
+        (0.50, 2000.0),
+    ],
+    (Asset("USD", DEFAULT_ISSUER), Asset("EUR", DEFAULT_ISSUER)): [
+        (0.90, 3000.0),
+        (0.88, 2000.0),
+    ],
+    (Asset("EUR", DEFAULT_ISSUER), Asset("USD", DEFAULT_ISSUER)): [
+        (1.05, 3000.0),
+        (1.03, 2000.0),
+    ],
 }
 
 
@@ -82,11 +95,15 @@ def _mock_fetch_arbitrage(
     return [Level(rate=r, capacity=c) for r, c in pairs[:limit]]
 
 
-def get_mock_graph_with_arbitrage(limit_per_book: int = 20) -> dict[Asset, list[MarketEdge]]:
+def get_mock_graph_with_arbitrage(
+    limit_per_book: int = 20,
+) -> dict[Asset, list[MarketEdge]]:
     """Mock graph that contains a negative cycle (for arbitrage tests)."""
     pairs = [
         ("A", None, "B", ""),
         ("B", "", "C", None),
         ("C", None, "A", None),
     ]
-    return build_graph_from_pairs(pairs, _mock_fetch_arbitrage, client=None, limit_per_book=limit_per_book)
+    return build_graph_from_pairs(
+        pairs, _mock_fetch_arbitrage, client=None, limit_per_book=limit_per_book
+    )

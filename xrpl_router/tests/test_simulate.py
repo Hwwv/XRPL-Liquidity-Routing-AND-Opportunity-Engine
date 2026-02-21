@@ -1,4 +1,5 @@
 """Unit tests for slippage simulation."""
+
 import unittest
 from xrpl_router.orderbooks import Level
 from xrpl_router.graph import MarketEdge
@@ -7,7 +8,8 @@ from xrpl_router.simulate import simulate_path
 
 def _edge(src: str, dst: str, levels: list[tuple[float, float]]) -> MarketEdge:
     return MarketEdge(
-        src=src, dst=dst,
+        src=src,
+        dst=dst,
         levels=[Level(rate=r, capacity=c) for r, c in levels],
     )
 

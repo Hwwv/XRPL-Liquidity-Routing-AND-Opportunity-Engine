@@ -2,6 +2,7 @@
 Order book fetching and normalization to Level (rate, capacity).
 XRP amounts are normalized from drops to XRP units.
 """
+
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -18,6 +19,7 @@ DROPS_PER_XRP = 1_000_000
 @dataclass
 class Level:
     """Single order book level: rate (dst per 1 src) and capacity (available src units)."""
+
     rate: float
     capacity: float
 
@@ -107,4 +109,6 @@ def fetch_order_book(
     offers = raw.get("offers") or []
     src_is_xrp = src_currency.upper() == "XRP"
     dst_is_xrp = dst_currency.upper() == "XRP"
-    return offers_to_levels(offers, taker_pays_is_xrp=src_is_xrp, taker_gets_is_xrp=dst_is_xrp)
+    return offers_to_levels(
+        offers, taker_pays_is_xrp=src_is_xrp, taker_gets_is_xrp=dst_is_xrp
+    )

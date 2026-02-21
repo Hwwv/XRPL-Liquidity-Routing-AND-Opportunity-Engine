@@ -1,4 +1,5 @@
 """Unit tests for routing (Dijkstra, Bellman-Ford) with synthetic graphs."""
+
 import unittest
 from xrpl_router.orderbooks import Level
 from xrpl_router.graph import MarketEdge

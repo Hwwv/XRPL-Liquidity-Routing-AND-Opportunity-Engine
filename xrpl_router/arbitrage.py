@@ -1,6 +1,7 @@
 """
 Arbitrage scanner: run Bellman-Ford, extract cycle, simulate realistic fill, report profit after fees.
 """
+
 import logging
 from dataclasses import dataclass
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ArbitrageReport:
     """One arbitrage opportunity: cycle, profit estimate, confidence heuristic."""
+
     cycle: list[Asset]
     profit_pct: float
     profit_absolute: float

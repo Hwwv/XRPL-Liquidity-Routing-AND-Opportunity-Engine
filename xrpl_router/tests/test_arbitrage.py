@@ -1,4 +1,5 @@
 """Unit tests for arbitrage detection (synthetic negative cycle)."""
+
 import unittest
 from xrpl_router.orderbooks import Level
 from xrpl_router.graph import MarketEdge

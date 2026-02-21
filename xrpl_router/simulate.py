@@ -2,6 +2,7 @@
 Slippage simulation: execute a path with capacity-constrained level-by-level fill.
 Applies configurable per-hop fees. Returns final output, fully_filled, effective rate.
 """
+
 from dataclasses import dataclass
 from typing import Callable
 
@@ -12,12 +13,13 @@ from .config import TRADING_FEE, FAILURE_PENALTY
 @dataclass
 class SimResult:
     """Result of simulating execution along a path."""
+
     output_amount: float
     fully_filled: bool
     effective_rate: float
     hops_executed: int
     fill_ratios: list[float]  # per-hop fill ratio (output / input)
-    avg_rates: list[float]    # per-hop effective rate
+    avg_rates: list[float]  # per-hop effective rate
 
 
 def simulate_path(
@@ -88,7 +90,9 @@ def simulate_path(
     )
 
 
-def _find_edge(graph: dict[Asset, list[MarketEdge]], src: Asset, dst: Asset) -> MarketEdge | None:
+def _find_edge(
+    graph: dict[Asset, list[MarketEdge]], src: Asset, dst: Asset
+) -> MarketEdge | None:
     """Return first edge from src to dst (best rate is first in our construction)."""
     for e in graph.get(src, []):
         if e.dst == dst:
@@ -116,7 +120,9 @@ def _fill_levels(amount_src: float, edge: MarketEdge) -> tuple[float, bool, floa
     return total_dst, fully_filled, avg_rate
 
 
-def compute_success_probability(path: list[Asset], graph: dict[Asset, list[MarketEdge]], input_amount: float) -> float:
+def compute_success_probability(
+    path: list[Asset], graph: dict[Asset, list[MarketEdge]], input_amount: float
+) -> float:
     """
     Compute success probability for executing the path with given input_amount.
     For each hop, p_h based on available liquidity vs needed.

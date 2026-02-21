@@ -1,6 +1,7 @@
 """
 XRPL JSON-RPC client. Connects to Testnet or Devnet per config.
 """
+
 import logging
 from typing import Any
 
