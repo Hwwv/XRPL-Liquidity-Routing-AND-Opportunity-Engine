@@ -20,12 +20,15 @@ from .arbitrage import scan_arbitrage, ArbitrageReport
 from .strategy import (
     AgentState,
     RouteChoice,
+    STRATEGY_EXTENDED_GREEDY,
     evaluate_routes,
     evaluate_routes_legacy,
+    extended_greedy_step,
     greedy_agent_step,
     greedy_agent_step_legacy,
     normalize_strategy_mode,
     STRATEGY_LEGACY,
+    STRATEGY_GREEDY,
     STRATEGY_TARGET_ASSET,
 )
 from .valuation import value_in_base
@@ -52,9 +55,12 @@ __all__ = [
     "ArbitrageReport",
     "evaluate_routes",
     "evaluate_routes_legacy",
+    "extended_greedy_step",
     "greedy_agent_step",
     "greedy_agent_step_legacy",
     "normalize_strategy_mode",
+    "STRATEGY_GREEDY",
+    "STRATEGY_EXTENDED_GREEDY",
     "STRATEGY_LEGACY",
     "STRATEGY_TARGET_ASSET",
     "RouteChoice",

@@ -1,6 +1,6 @@
 # XRPL Liquidity Routing & Opportunity Engine
 
-A Python engine that connects to the XRP Ledger, fetches order books, builds a liquidity graph, finds optimal conversion routes, detects arbitrage opportunities, and simulates realistic execution (fees + slippage) with a greedy expected-value strategy. **It does not assume infinite liquidity.**
+A Python engine that connects to the XRP Ledger, fetches order books, builds a liquidity graph, finds optimal conversion routes, detects arbitrage opportunities, and simulates realistic execution (fees + slippage). It includes three agent strategies (`legacy`, `greedy`, `extended-greedy`). **It does not assume infinite liquidity.**
 
 ---
 
@@ -65,8 +65,9 @@ pip install -r requirements.txt
 | CLI (mock) | `python -m xrpl_router.cli route --from XRP --to USD --amount 100 --mock` |
 | CLI (live) | `python -m xrpl_router.cli route --from XRP --to USD --amount 100` |
 | Arbitrage | `python -m xrpl_router.cli arbitrage [--mock]` |
-| Simulate | `python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 5 [--mock]` |
+| Simulate | `python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 5 --strategy greedy [--mock]` |
 | Web UI | `streamlit run app.py` |
+| Click-to-run (macOS) | Double-click `launch_app.command` |
 | Tests | `python -m unittest discover -s xrpl_router/tests -v` |
 
 ---
@@ -77,9 +78,10 @@ pip install -r requirements.txt
 - **Graph**: Directed multi-graph with capacity-limited edges; real-time rebuild.
 - **Routing**: Dijkstra (best path by rate, weight = −log(rate)), Bellman-Ford (negative-cycle arbitrage).
 - **Slippage simulation**: Level-by-level fill, configurable fees, effective rate and fill status.
-- **Opportunity evaluation**: Candidate routes (max hops, k-shortest), expected value, greedy best route.
+- **Strategy modes**: `legacy` (EV-based), `greedy` (base-asset scoring + cooldown), `extended-greedy` (2-step lookahead MPC).
+- **Opportunity evaluation**: Candidate routes, base-asset valuation, trade gating vs HOLD, cooldown/reversal block.
 - **Arbitrage scanner**: Cycle detection + simulated fill and profit after fees.
-- **Modes**: Route optimization (A), Arbitrage scan (B), Greedy agent simulation (C).
+- **Modes**: Route optimization (A), Arbitrage scan (B), Strategy simulation (C), and Strategy comparison in UI.
 
 ---
 
@@ -117,6 +119,7 @@ Use **mock data** to run the full pipeline without connecting to XRPL (determini
 - **CLI:** add `--mock` to any command.
 - **UI:** check "Use mock data (no network)" in the sidebar.
 - **Code:** `get_graph(use_mock=True)` in `xrpl_router.loader`.
+- **Divergence demo:** in `app.py` and `xrpl_router/ui.py`, enable `Divergence demo market (mock only)` to use a crafted market where strategies diverge more clearly.
 
 ```bash
 python -m xrpl_router.cli route --from XRP --to USD --amount 100 --mock
@@ -130,14 +133,18 @@ Full-stack tests use the mock: `python -m unittest discover -s xrpl_router/tests
 
 ## Web UI
 
-A Streamlit UI lets you run Route, Arbitrage, and Simulate from the browser.
+A Streamlit UI lets you run Route, Arbitrage, Simulate, and Comparison from the browser.
 
 ```bash
 pip install -r requirements.txt   # includes streamlit
 streamlit run app.py
 ```
 
-Then open the URL shown (e.g. http://localhost:8501). Use the sidebar to switch **Mode** (Route / Arbitrage / Simulate) and to enable **Use mock data (no network)** for testing without XRPL.
+Then open the URL shown (e.g. http://localhost:8501). Use the sidebar to switch modes and enable:
+- **Use mock data (no network)**
+- **Divergence demo market (mock only)** (for clearer strategy differences)
+
+For macOS, you can launch the app by double-clicking `launch_app.command`.
 
 ---
 
@@ -200,15 +207,22 @@ Arbitrage Cycle Detected:
 
 ---
 
-### Mode C — Greedy agent simulation
+### Mode C — Strategy simulation
 
-**Input:** initial asset, amount, number of steps.
+**Input:** initial asset, amount, number of steps, strategy mode.
 
 ```bash
-python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 20
+python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 20 --strategy greedy
+python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 20 --strategy extended-greedy
+python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 20 --strategy legacy_greedy
 ```
 
-**Output:** Final portfolio, final value, growth curve (value per step), total return.
+**Output:** Final portfolio, final value, growth curve, total return.
+
+Available strategy values:
+- `legacy_greedy`: original EV-based strategy (comparison baseline)
+- `greedy`: base-asset scoring + cooldown/reversal controls
+- `extended-greedy`: two-step lookahead; executes first action then replans
 
 Example:
 
@@ -225,14 +239,21 @@ Total Return: 1.23%
 
 Edit `xrpl_router/config.py` or set environment variables:
 
-| Parameter        | Default | Description                    |
-|------------------|--------|--------------------------------|
-| `XRPL_NETWORK`   | testnet| `testnet` or `devnet`          |
-| `MAX_HOPS`       | 3      | Max path length for routing   |
-| `MAX_PATHS`      | 5      | Max candidate paths            |
-| `TRADING_FEE`    | 0.001  | Per-hop fee fraction (0.1%)   |
-| `RISK_PENALTY`   | 0.002  | Execution uncertainty penalty |
-| `BOOK_DEPTH`     | 20     | Order book depth (levels)     |
+| Parameter | Default | Description |
+|---|---:|---|
+| `XRPL_NETWORK` | `testnet` | `testnet` or `devnet` |
+| `MAX_HOPS` / `MAX_PATHS` | `3` / `5` | Route candidate caps |
+| `TRADING_FEE` | `0.001` | Per-hop fee fraction |
+| `BOOK_DEPTH` | `20` | Order book depth |
+| `STRATEGY_MODE` | `greedy` | `legacy_greedy` / `greedy` / `extended-greedy` |
+| `BASE_ASSET` | `USD` | Fixed valuation asset |
+| `MIN_BASE_GAIN_MULT` | `1.002` | Trade only above this base-value multiplier |
+| `COOLDOWN_STEPS` | `2` | Cooldown window |
+| `REVERSE_BLOCK` | `True` | Block immediate reversals during cooldown |
+| `BASE_VALUE_MAX_HOPS` / `BASE_VALUE_MAX_PATHS` | `3` / `3` | Base valuation path caps |
+| `LOOKAHEAD_DEPTH` | `2` | Extended-greedy planning depth |
+| `LOOKAHEAD_TOPK` | `5` | First/second-step action expansion count |
+| `LOOKAHEAD_MAX_HOPS` / `LOOKAHEAD_MAX_PATHS` | `3` / `5` | Lookahead route caps |
 
 ---
 
@@ -247,7 +268,7 @@ xrpl_router/
     routing.py      # Dijkstra, Bellman-Ford
     arbitrage.py    # Negative-cycle scan, profit estimate
     simulate.py     # Slippage + fee simulation
-    strategy.py     # Candidate paths, expected value, greedy choice
+    strategy.py     # Legacy/Greedy/Extended-greedy policies
     cli.py          # Modes A, B, C
     tests/
 ```
@@ -270,7 +291,8 @@ With V = currencies, E = edges, L = levels per edge, K = candidate paths, H = ho
 
 - **No infinite liquidity**: Execution is simulated by filling levels in order until capacity or amount is exhausted.
 - **Fees and slippage**: Per-hop fee and level-by-level fill produce realistic effective rates and fill status.
-- **Expected value**: Uses P(success) × output − cost with optional risk penalty; avoids assuming infinite profit.
+- **Greedy**: Scores actions by base-asset value improvement and applies HOLD/cooldown/reversal guards.
+- **Extended-greedy**: Two-step lookahead (model predictive control): plan 2 steps, execute 1, replan next step.
 - **Deterministic tests**: `xrpl_router/tests` use synthetic graphs (no live XRPL) for unit tests.
 
 ---

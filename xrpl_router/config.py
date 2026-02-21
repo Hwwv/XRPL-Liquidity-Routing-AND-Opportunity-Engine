@@ -65,6 +65,16 @@ REVERSE_BLOCK: bool = True
 BASE_VALUE_MAX_HOPS: int = 3
 BASE_VALUE_MAX_PATHS: int = 3
 
+# --- Strategy mode / lookahead controls ---
+STRATEGY_MODE: str = "greedy"  # "legacy" | "greedy" | "extended-greedy"
+LOOKAHEAD_DEPTH: int = 2  # fixed at 2 in this version
+LOOKAHEAD_TOPK: int = 5
+LOOKAHEAD_MIN_GAIN_MULT: float = (
+    1.002  # retained for compatibility; MIN_BASE_GAIN_MULT is used
+)
+LOOKAHEAD_MAX_HOPS: int = 3
+LOOKAHEAD_MAX_PATHS: int = 5
+
 # --- Default order book pairs (src_currency, src_issuer, dst_currency, dst_issuer) ---
 # Testnet/Devnet common gateway issuer (ripple.com)
 DEFAULT_ISSUER = "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B"

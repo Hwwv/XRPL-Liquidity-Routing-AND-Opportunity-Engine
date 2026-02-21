@@ -13,7 +13,11 @@ sys.path.insert(
 
 from xrpl_router.config import DEFAULT_ISSUER
 from xrpl_router.loader import get_graph
-from xrpl_router.mock_data import get_mock_graph, get_mock_graph_with_arbitrage
+from xrpl_router.mock_data import (
+    get_mock_graph,
+    get_mock_graph_divergence,
+    get_mock_graph_with_arbitrage,
+)
 from xrpl_router.routing import dijkstra_best_path, bellman_ford_negative_cycle
 from xrpl_router.simulate import simulate_path
 from xrpl_router.arbitrage import scan_arbitrage
@@ -34,6 +38,12 @@ class TestMockIntegration(unittest.TestCase):
 
     def test_mock_graph_builds(self):
         graph = get_graph(use_mock=True)
+        self.assertIsInstance(graph, dict)
+        self.assertIn(Asset("XRP", None), graph)
+        self.assertGreater(len(graph), 0)
+
+    def test_divergence_mock_graph_builds(self):
+        graph = get_mock_graph_divergence()
         self.assertIsInstance(graph, dict)
         self.assertIn(Asset("XRP", None), graph)
         self.assertGreater(len(graph), 0)

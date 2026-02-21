@@ -10,14 +10,17 @@ from . import config as router_cfg
 from .config import DEFAULT_ISSUER, TRADING_FEE, MAX_HOPS, MAX_PATHS
 from .graph import Asset
 from .loader import get_graph
+from .mock_data import get_mock_graph_divergence
 from .routing import dijkstra_best_path
 from .simulate import simulate_path
 from .arbitrage import scan_arbitrage
 from .strategy import (
     AgentState,
+    STRATEGY_EXTENDED_GREEDY,
+    STRATEGY_GREEDY,
     STRATEGY_LEGACY,
-    STRATEGY_TARGET_ASSET,
     greedy_agent_step,
+    normalize_strategy_mode,
 )
 
 
@@ -34,25 +37,31 @@ def _resolve_asset(s: str) -> Asset:
 
 
 def _strategy_selector(key_prefix: str = "") -> str:
-    labels = [
-        "Target-Asset Scoring + Cooldown",
-        "Legacy Greedy (EV)",
-    ]
+    labels = ["Legacy Greedy (EV)", "Greedy", "Extended-Greedy (2-step lookahead)"]
     label_to_mode = {
-        "Target-Asset Scoring + Cooldown": STRATEGY_TARGET_ASSET,
         "Legacy Greedy (EV)": STRATEGY_LEGACY,
+        "Greedy": STRATEGY_GREEDY,
+        "Extended-Greedy (2-step lookahead)": STRATEGY_EXTENDED_GREEDY,
     }
+    normalized_default = normalize_strategy_mode(router_cfg.STRATEGY_MODE)
+    default_label = (
+        "Extended-Greedy (2-step lookahead)"
+        if normalized_default == STRATEGY_EXTENDED_GREEDY
+        else (
+            "Legacy Greedy (EV)" if normalized_default == STRATEGY_LEGACY else "Greedy"
+        )
+    )
     selected_label = st.selectbox(
         "Strategy",
         options=labels,
-        index=0,
+        index=labels.index(default_label),
         key=f"{key_prefix}strategy",
     )
     return label_to_mode[selected_label]
 
 
-def _build_target_strategy_cfg(key_prefix: str = ""):
-    with st.expander("Target-Asset Strategy Settings", expanded=False):
+def _build_strategy_cfg(key_prefix: str = "", divergence_demo: bool = False):
+    with st.expander("Strategy Settings", expanded=False):
         base_asset = st.text_input(
             "Base asset",
             value=str(router_cfg.BASE_ASSET),
@@ -82,16 +91,37 @@ def _build_target_strategy_cfg(key_prefix: str = ""):
         base_value_max_hops = st.number_input(
             "Base valuation max hops",
             min_value=1,
-            value=int(router_cfg.BASE_VALUE_MAX_HOPS),
+            value=int(1 if divergence_demo else router_cfg.BASE_VALUE_MAX_HOPS),
             step=1,
             key=f"{key_prefix}base_value_max_hops",
         )
         base_value_max_paths = st.number_input(
             "Base valuation max paths",
             min_value=1,
-            value=int(router_cfg.BASE_VALUE_MAX_PATHS),
+            value=int(1 if divergence_demo else router_cfg.BASE_VALUE_MAX_PATHS),
             step=1,
             key=f"{key_prefix}base_value_max_paths",
+        )
+        lookahead_topk = st.number_input(
+            "Lookahead top-K",
+            min_value=1,
+            value=int(router_cfg.LOOKAHEAD_TOPK),
+            step=1,
+            key=f"{key_prefix}lookahead_topk",
+        )
+        lookahead_max_hops = st.number_input(
+            "Lookahead max hops",
+            min_value=1,
+            value=int(3 if divergence_demo else router_cfg.LOOKAHEAD_MAX_HOPS),
+            step=1,
+            key=f"{key_prefix}lookahead_max_hops",
+        )
+        lookahead_max_paths = st.number_input(
+            "Lookahead max paths",
+            min_value=1,
+            value=int(5 if divergence_demo else router_cfg.LOOKAHEAD_MAX_PATHS),
+            step=1,
+            key=f"{key_prefix}lookahead_max_paths",
         )
     return SimpleNamespace(
         DEFAULT_ISSUER=router_cfg.DEFAULT_ISSUER,
@@ -102,7 +132,18 @@ def _build_target_strategy_cfg(key_prefix: str = ""):
         REVERSE_BLOCK=bool(reverse_block),
         BASE_VALUE_MAX_HOPS=int(base_value_max_hops),
         BASE_VALUE_MAX_PATHS=int(base_value_max_paths),
+        LOOKAHEAD_TOPK=int(lookahead_topk),
+        LOOKAHEAD_DEPTH=int(router_cfg.LOOKAHEAD_DEPTH),
+        LOOKAHEAD_MIN_GAIN_MULT=float(router_cfg.LOOKAHEAD_MIN_GAIN_MULT),
+        LOOKAHEAD_MAX_HOPS=int(lookahead_max_hops),
+        LOOKAHEAD_MAX_PATHS=int(lookahead_max_paths),
     )
+
+
+def _load_graph(use_mock: bool, divergence_demo_market: bool):
+    if use_mock and divergence_demo_market:
+        return get_mock_graph_divergence(limit_per_book=router_cfg.BOOK_DEPTH)
+    return get_graph(use_mock=use_mock)
 
 
 def main():
@@ -117,6 +158,12 @@ def main():
         value=True,
         help="Deterministic data for testing without XRPL.",
     )
+    divergence_demo_market = st.sidebar.checkbox(
+        "Divergence demo market (mock only)",
+        value=False,
+        help="Uses a crafted mock market designed to separate Greedy and Extended-Greedy behavior.",
+        disabled=not use_mock,
+    )
     mode = st.sidebar.radio("Mode", ["Route", "Arbitrage", "Simulate"], horizontal=True)
 
     if mode == "Route":
@@ -130,7 +177,9 @@ def main():
             amount = st.number_input("Amount", min_value=0.01, value=100.0, step=10.0)
         if st.button("Find best route"):
             with st.spinner("Building graph..."):
-                graph = get_graph(use_mock=use_mock)
+                graph = _load_graph(
+                    use_mock=use_mock, divergence_demo_market=divergence_demo_market
+                )
             if not graph:
                 st.error(
                     "No order book data. Try live data (uncheck mock) or check network."
@@ -162,7 +211,9 @@ def main():
         )
         if st.button("Scan for arbitrage"):
             with st.spinner("Building graph and running Bellman-Ford..."):
-                graph = get_graph(use_mock=use_mock)
+                graph = _load_graph(
+                    use_mock=use_mock, divergence_demo_market=divergence_demo_market
+                )
             if not graph:
                 st.error("No order book data.")
             else:
@@ -190,14 +241,14 @@ def main():
         with col3:
             steps = st.number_input("Steps", min_value=1, value=20, step=1)
         strategy_mode = _strategy_selector("sim_")
-        strategy_cfg = (
-            _build_target_strategy_cfg("sim_")
-            if strategy_mode == STRATEGY_TARGET_ASSET
-            else router_cfg
+        strategy_cfg = _build_strategy_cfg(
+            "sim_", divergence_demo=divergence_demo_market
         )
         if st.button("Run simulation"):
             with st.spinner("Running greedy agent..."):
-                graph = get_graph(use_mock=use_mock)
+                graph = _load_graph(
+                    use_mock=use_mock, divergence_demo_market=divergence_demo_market
+                )
             if not graph:
                 st.error("No order book data.")
             else:
