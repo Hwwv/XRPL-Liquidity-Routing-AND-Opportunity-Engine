@@ -25,6 +25,7 @@ from xrpl_router import config as router_cfg
 from xrpl_router.config import DEFAULT_ISSUER, TRADING_FEE, MAX_HOPS, MAX_PATHS
 from xrpl_router.graph import Asset
 from xrpl_router.loader import get_graph
+from xrpl_router.mock_data import get_mock_graph_divergence
 from xrpl_router.routing import dijkstra_best_path
 from xrpl_router.simulate import simulate_path
 from xrpl_router.arbitrage import scan_arbitrage
@@ -121,8 +122,23 @@ def _strategy_selector(key_prefix: str = "") -> str:
     return label_to_mode[selected_label]
 
 
-def _build_strategy_cfg(key_prefix: str = ""):
+def _build_strategy_cfg(key_prefix: str = "", divergence_demo: bool = False):
     with st.expander("Strategy Settings", expanded=False):
+        if divergence_demo:
+            if st.button(
+                "Apply divergence demo preset",
+                key=f"{key_prefix}apply_divergence_preset",
+                help="Force settings to a known configuration that highlights strategy differences.",
+            ):
+                st.session_state[f"{key_prefix}min_base_gain_mult"] = 1.0
+                st.session_state[f"{key_prefix}cooldown_steps"] = 2
+                st.session_state[f"{key_prefix}reverse_block"] = True
+                st.session_state[f"{key_prefix}base_value_max_hops"] = 1
+                st.session_state[f"{key_prefix}base_value_max_paths"] = 1
+                st.session_state[f"{key_prefix}lookahead_topk"] = 5
+                st.session_state[f"{key_prefix}lookahead_max_hops"] = 3
+                st.session_state[f"{key_prefix}lookahead_max_paths"] = 5
+                st.rerun()
         base_asset = st.text_input(
             "Base asset",
             value=str(router_cfg.BASE_ASSET),
@@ -152,14 +168,14 @@ def _build_strategy_cfg(key_prefix: str = ""):
         base_value_max_hops = st.number_input(
             "Base valuation max hops",
             min_value=1,
-            value=int(router_cfg.BASE_VALUE_MAX_HOPS),
+            value=int(1 if divergence_demo else router_cfg.BASE_VALUE_MAX_HOPS),
             step=1,
             key=f"{key_prefix}base_value_max_hops",
         )
         base_value_max_paths = st.number_input(
             "Base valuation max paths",
             min_value=1,
-            value=int(router_cfg.BASE_VALUE_MAX_PATHS),
+            value=int(1 if divergence_demo else router_cfg.BASE_VALUE_MAX_PATHS),
             step=1,
             key=f"{key_prefix}base_value_max_paths",
         )
@@ -173,14 +189,14 @@ def _build_strategy_cfg(key_prefix: str = ""):
         lookahead_max_hops = st.number_input(
             "Lookahead max hops",
             min_value=1,
-            value=int(router_cfg.LOOKAHEAD_MAX_HOPS),
+            value=int(3 if divergence_demo else router_cfg.LOOKAHEAD_MAX_HOPS),
             step=1,
             key=f"{key_prefix}lookahead_max_hops",
         )
         lookahead_max_paths = st.number_input(
             "Lookahead max paths",
             min_value=1,
-            value=int(router_cfg.LOOKAHEAD_MAX_PATHS),
+            value=int(5 if divergence_demo else router_cfg.LOOKAHEAD_MAX_PATHS),
             step=1,
             key=f"{key_prefix}lookahead_max_paths",
         )
@@ -201,6 +217,66 @@ def _build_strategy_cfg(key_prefix: str = ""):
     )
 
 
+def _simulate_strategy(
+    graph: dict,
+    initial_asset: Asset,
+    initial_amount: float,
+    steps: int,
+    strategy_mode: str,
+    strategy_cfg,
+    valuation_asset: Asset,
+) -> tuple[dict[Asset, float], list[float], int, int]:
+    def _mtm_in_base(portfolio: dict[Asset, float], base_asset: Asset) -> float:
+        total = 0.0
+        for asset_k, amt in portfolio.items():
+            if amt <= 0:
+                continue
+            total += value_in_base(asset_k, amt, base_asset, graph, strategy_cfg)
+        return total
+
+    portfolio: dict[Asset, float] = {initial_asset: initial_amount}
+    growth: list[float] = [_mtm_in_base(portfolio, valuation_asset)]
+    state = AgentState()
+    last_asset = None
+    trades = 0
+    holds = 0
+    for step in range(steps - 1):
+        choice, used = greedy_agent_step(
+            graph,
+            portfolio,
+            fee_fraction=TRADING_FEE,
+            max_hops=MAX_HOPS,
+            max_paths=MAX_PATHS,
+            step=step,
+            state=state,
+            last_asset=last_asset,
+            strategy_mode=strategy_mode,
+            cfg=strategy_cfg,
+        )
+        if choice is None or used == "":
+            holds += 1
+            growth.append(_mtm_in_base(portfolio, valuation_asset))
+            continue
+        amt = portfolio.get(used, 0)
+        if amt <= 0:
+            holds += 1
+            growth.append(_mtm_in_base(portfolio, valuation_asset))
+            continue
+        trades += 1
+        portfolio[used] = 0.0
+        dest = choice.path[-1]
+        last_asset = dest
+        portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
+        growth.append(_mtm_in_base(portfolio, valuation_asset))
+    return portfolio, growth, trades, holds
+
+
+def _load_graph(use_mock: bool, divergence_demo_market: bool):
+    if use_mock and divergence_demo_market:
+        return get_mock_graph_divergence(limit_per_book=router_cfg.BOOK_DEPTH)
+    return get_graph(use_mock=use_mock)
+
+
 # --- Streamlit app (single entrypoint so context is correct) ---
 st.set_page_config(page_title="XRPL Router", layout="wide")
 st.title("XRPL Liquidity Routing & Opportunity Engine")
@@ -212,6 +288,12 @@ use_mock = st.sidebar.checkbox(
     "Use mock data (no network)",
     value=True,
     help="Deterministic data for testing without XRPL.",
+)
+divergence_demo_market = st.sidebar.checkbox(
+    "Divergence demo market (mock only)",
+    value=False,
+    help="Uses a crafted mock market designed to separate Greedy and Extended-Greedy behavior.",
+    disabled=not use_mock,
 )
 mode = st.sidebar.radio(
     "Mode",
@@ -230,7 +312,9 @@ if mode == "Route":
         amount = st.number_input("Amount", min_value=0.01, value=100.0, step=10.0)
     if st.button("Find best route"):
         with st.spinner("Building graph..."):
-            graph = get_graph(use_mock=use_mock)
+            graph = _load_graph(
+                use_mock=use_mock, divergence_demo_market=divergence_demo_market
+            )
         if not graph:
             st.error(
                 "No order book data. Try live data (uncheck mock) or check network."
@@ -262,7 +346,9 @@ elif mode == "Arbitrage":
     )
     if st.button("Scan for arbitrage"):
         with st.spinner("Building graph and running Bellman-Ford..."):
-            graph = get_graph(use_mock=use_mock)
+            graph = _load_graph(
+                use_mock=use_mock, divergence_demo_market=divergence_demo_market
+            )
         if not graph:
             st.error("No order book data.")
         else:
@@ -290,16 +376,43 @@ elif mode == "Simulate":
     with col3:
         steps = st.number_input("Steps", min_value=1, value=20, step=1)
     strategy_mode = _strategy_selector("sim_")
-    strategy_cfg = _build_strategy_cfg("sim_")
+    if strategy_mode == STRATEGY_LEGACY:
+        st.caption(
+            "Legacy Greedy uses legacy EV parameters from config; base/cooldown/lookahead settings below do not apply."
+        )
+        strategy_cfg = router_cfg
+    else:
+        strategy_cfg = _build_strategy_cfg(
+            "sim_", divergence_demo=divergence_demo_market
+        )
     if st.button("Run simulation"):
         with st.spinner("Running greedy agent..."):
-            graph = get_graph(use_mock=use_mock)
+            graph = _load_graph(
+                use_mock=use_mock, divergence_demo_market=divergence_demo_market
+            )
         if not graph:
             st.error("No order book data.")
         else:
             a = _resolve_asset(asset)
+            base_asset_cfg = getattr(strategy_cfg, "BASE_ASSET", router_cfg.BASE_ASSET)
+            valuation_asset = (
+                base_asset_cfg
+                if isinstance(base_asset_cfg, Asset)
+                else _resolve_asset(str(base_asset_cfg))
+            )
+
+            def _portfolio_value_in_base(pf: dict[Asset, float]) -> float:
+                total_base = 0.0
+                for asset_k, asset_amt in pf.items():
+                    if asset_amt <= 0:
+                        continue
+                    total_base += value_in_base(
+                        asset_k, asset_amt, valuation_asset, graph, strategy_cfg
+                    )
+                return total_base
+
             portfolio = {a: amount}
-            growth = [amount]
+            growth = [_portfolio_value_in_base(portfolio)]
             debug_logs = []
             hold_count = 0
             trade_count = 0
@@ -322,6 +435,7 @@ elif mode == "Simulate":
 
                 if choice is None or used == "":
                     hold_count += 1
+                    growth.append(_portfolio_value_in_base(portfolio))
                     # Log HOLD decision
                     if step < 20:
                         debug_logs.append(f"Step {step+1}: HOLD (no profitable trade)")
@@ -329,6 +443,7 @@ elif mode == "Simulate":
 
                 amt = portfolio.get(used, 0)
                 if amt <= 0:
+                    growth.append(_portfolio_value_in_base(portfolio))
                     break
 
                 trade_count += 1
@@ -347,10 +462,12 @@ elif mode == "Simulate":
                 dest = choice.path[-1]
                 last_asset = dest
                 portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
-                growth.append(sum(portfolio.values()))
-            total = sum(portfolio.values())
+                growth.append(_portfolio_value_in_base(portfolio))
+            total = _portfolio_value_in_base(portfolio)
+            raw_total = sum(portfolio.values())
             st.success("Simulation complete")
-            st.metric("Final portfolio value", f"{total:.2f}")
+            st.metric(f"Final portfolio value ({valuation_asset})", f"{total:.2f}")
+            st.metric("Final portfolio raw total (mixed units)", f"{raw_total:.2f}")
             st.json({str(asset): amount for asset, amount in portfolio.items()})
 
             # Summary stats
@@ -382,7 +499,9 @@ elif mode == "Visualization":
         target = st.text_input("To asset", value="USD", key="vis_target")
     if st.button("Visualize path"):
         with st.spinner("Building graph..."):
-            graph = get_graph(use_mock=use_mock)
+            graph = _load_graph(
+                use_mock=use_mock, divergence_demo_market=divergence_demo_market
+            )
         if not graph:
             st.error("No order book data.")
         else:
@@ -414,12 +533,16 @@ elif mode == "Comparison":
     steps = st.number_input(
         "Simulation steps", min_value=1, value=10, step=1, key="comp_steps"
     )
-    strategy_mode = _strategy_selector("comp_")
-    strategy_cfg = _build_strategy_cfg("comp_")
+    st.caption(
+        "Comparison runs all three strategies. Settings below apply to Greedy and Extended-Greedy."
+    )
+    strategy_cfg = _build_strategy_cfg("comp_", divergence_demo=divergence_demo_market)
     target = st.text_input("Target asset for route", value="USD", key="comp_target")
     if st.button("Compare strategies"):
         with st.spinner("Running comparison..."):
-            graph = get_graph(use_mock=use_mock)
+            graph = _load_graph(
+                use_mock=use_mock, divergence_demo_market=divergence_demo_market
+            )
         if not graph:
             st.error("No order book data.")
         else:
@@ -437,64 +560,53 @@ elif mode == "Comparison":
                     tgt, route_value, tgt, graph, strategy_cfg
                 )
 
-            # Greedy strategy: simulate over steps
-            portfolio = {a: amount}
-            growth = [amount]
-            state = AgentState()
-            last_asset = None
-            for step in range(steps - 1):
-                choice, used = greedy_agent_step(
-                    graph,
-                    portfolio,
-                    fee_fraction=TRADING_FEE,
-                    max_hops=MAX_HOPS,
-                    max_paths=MAX_PATHS,
-                    step=step,
-                    state=state,
-                    last_asset=last_asset,
-                    strategy_mode=strategy_mode,
-                    cfg=strategy_cfg,
-                )
-                if choice is None or used == "":
-                    break
-                amt = portfolio.get(used, 0)
-                if amt <= 0:
-                    break
-                portfolio[used] = 0.0
-                dest = choice.path[-1]
-                last_asset = dest
-                portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
-                growth.append(sum(portfolio.values()))
-            greedy_value_in_target = 0.0
-            for asset_k, asset_amt in portfolio.items():
-                if asset_amt <= 0:
-                    continue
-                greedy_value_in_target += value_in_base(
-                    asset_k, asset_amt, tgt, graph, strategy_cfg
-                )
-
             st.subheader("Results")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric(
-                    f"Route value ({tgt})",
-                    f"{route_value_in_target:.2f}" if route_result else "No path",
+            st.metric(
+                f"Route value ({tgt})",
+                f"{route_value_in_target:.2f}" if route_result else "No path",
+            )
+
+            strategy_runs = [
+                ("Legacy Greedy (EV)", STRATEGY_LEGACY, router_cfg),
+                ("Greedy", STRATEGY_GREEDY, strategy_cfg),
+                ("Extended-Greedy", STRATEGY_EXTENDED_GREEDY, strategy_cfg),
+            ]
+
+            rows = []
+            charts = {}
+            for label, mode_name, mode_cfg in strategy_runs:
+                portfolio, growth, trades, holds = _simulate_strategy(
+                    graph, a, amount, int(steps), mode_name, mode_cfg, tgt
                 )
-            with col2:
-                st.metric(f"Greedy value ({tgt})", f"{greedy_value_in_target:.2f}")
-            if route_result and greedy_value_in_target > 0:
-                diff = (
-                    (
-                        (greedy_value_in_target - route_value_in_target)
-                        / route_value_in_target
+                value_in_target = 0.0
+                for asset_k, asset_amt in portfolio.items():
+                    if asset_amt <= 0:
+                        continue
+                    value_in_target += value_in_base(
+                        asset_k, asset_amt, tgt, graph, strategy_cfg
                     )
+                diff_pct = (
+                    ((value_in_target - route_value_in_target) / route_value_in_target)
                     * 100
                     if route_value_in_target
-                    else 0
+                    else 0.0
                 )
-                st.metric(f"Greedy vs Route ({tgt})", f"{diff:+.2f}%")
-            if len(growth) > 1:
-                st.line_chart({"Greedy portfolio": growth})
+                rows.append(
+                    {
+                        "Strategy": label,
+                        f"Value ({tgt})": round(value_in_target, 2),
+                        "Vs Route %": round(diff_pct, 2),
+                        "Trades": trades,
+                        "Holds": holds,
+                    }
+                )
+                charts[label] = growth
+
+            st.dataframe(rows, use_container_width=True)
+            for label, growth in charts.items():
+                if len(growth) > 1:
+                    st.caption(f"{label} growth")
+                    st.line_chart({"Portfolio value": growth})
 
 st.sidebar.markdown("---")
 st.sidebar.markdown(

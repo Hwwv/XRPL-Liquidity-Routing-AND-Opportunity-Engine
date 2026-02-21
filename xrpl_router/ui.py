@@ -10,6 +10,7 @@ from . import config as router_cfg
 from .config import DEFAULT_ISSUER, TRADING_FEE, MAX_HOPS, MAX_PATHS
 from .graph import Asset
 from .loader import get_graph
+from .mock_data import get_mock_graph_divergence
 from .routing import dijkstra_best_path
 from .simulate import simulate_path
 from .arbitrage import scan_arbitrage
@@ -59,7 +60,7 @@ def _strategy_selector(key_prefix: str = "") -> str:
     return label_to_mode[selected_label]
 
 
-def _build_strategy_cfg(key_prefix: str = ""):
+def _build_strategy_cfg(key_prefix: str = "", divergence_demo: bool = False):
     with st.expander("Strategy Settings", expanded=False):
         base_asset = st.text_input(
             "Base asset",
@@ -90,14 +91,14 @@ def _build_strategy_cfg(key_prefix: str = ""):
         base_value_max_hops = st.number_input(
             "Base valuation max hops",
             min_value=1,
-            value=int(router_cfg.BASE_VALUE_MAX_HOPS),
+            value=int(1 if divergence_demo else router_cfg.BASE_VALUE_MAX_HOPS),
             step=1,
             key=f"{key_prefix}base_value_max_hops",
         )
         base_value_max_paths = st.number_input(
             "Base valuation max paths",
             min_value=1,
-            value=int(router_cfg.BASE_VALUE_MAX_PATHS),
+            value=int(1 if divergence_demo else router_cfg.BASE_VALUE_MAX_PATHS),
             step=1,
             key=f"{key_prefix}base_value_max_paths",
         )
@@ -111,14 +112,14 @@ def _build_strategy_cfg(key_prefix: str = ""):
         lookahead_max_hops = st.number_input(
             "Lookahead max hops",
             min_value=1,
-            value=int(router_cfg.LOOKAHEAD_MAX_HOPS),
+            value=int(3 if divergence_demo else router_cfg.LOOKAHEAD_MAX_HOPS),
             step=1,
             key=f"{key_prefix}lookahead_max_hops",
         )
         lookahead_max_paths = st.number_input(
             "Lookahead max paths",
             min_value=1,
-            value=int(router_cfg.LOOKAHEAD_MAX_PATHS),
+            value=int(5 if divergence_demo else router_cfg.LOOKAHEAD_MAX_PATHS),
             step=1,
             key=f"{key_prefix}lookahead_max_paths",
         )
@@ -139,6 +140,12 @@ def _build_strategy_cfg(key_prefix: str = ""):
     )
 
 
+def _load_graph(use_mock: bool, divergence_demo_market: bool):
+    if use_mock and divergence_demo_market:
+        return get_mock_graph_divergence(limit_per_book=router_cfg.BOOK_DEPTH)
+    return get_graph(use_mock=use_mock)
+
+
 def main():
     st.set_page_config(page_title="XRPL Router", layout="wide")
     st.title("XRPL Liquidity Routing & Opportunity Engine")
@@ -150,6 +157,12 @@ def main():
         "Use mock data (no network)",
         value=True,
         help="Deterministic data for testing without XRPL.",
+    )
+    divergence_demo_market = st.sidebar.checkbox(
+        "Divergence demo market (mock only)",
+        value=False,
+        help="Uses a crafted mock market designed to separate Greedy and Extended-Greedy behavior.",
+        disabled=not use_mock,
     )
     mode = st.sidebar.radio("Mode", ["Route", "Arbitrage", "Simulate"], horizontal=True)
 
@@ -164,7 +177,9 @@ def main():
             amount = st.number_input("Amount", min_value=0.01, value=100.0, step=10.0)
         if st.button("Find best route"):
             with st.spinner("Building graph..."):
-                graph = get_graph(use_mock=use_mock)
+                graph = _load_graph(
+                    use_mock=use_mock, divergence_demo_market=divergence_demo_market
+                )
             if not graph:
                 st.error(
                     "No order book data. Try live data (uncheck mock) or check network."
@@ -196,7 +211,9 @@ def main():
         )
         if st.button("Scan for arbitrage"):
             with st.spinner("Building graph and running Bellman-Ford..."):
-                graph = get_graph(use_mock=use_mock)
+                graph = _load_graph(
+                    use_mock=use_mock, divergence_demo_market=divergence_demo_market
+                )
             if not graph:
                 st.error("No order book data.")
             else:
@@ -224,10 +241,14 @@ def main():
         with col3:
             steps = st.number_input("Steps", min_value=1, value=20, step=1)
         strategy_mode = _strategy_selector("sim_")
-        strategy_cfg = _build_strategy_cfg("sim_")
+        strategy_cfg = _build_strategy_cfg(
+            "sim_", divergence_demo=divergence_demo_market
+        )
         if st.button("Run simulation"):
             with st.spinner("Running greedy agent..."):
-                graph = get_graph(use_mock=use_mock)
+                graph = _load_graph(
+                    use_mock=use_mock, divergence_demo_market=divergence_demo_market
+                )
             if not graph:
                 st.error("No order book data.")
             else:

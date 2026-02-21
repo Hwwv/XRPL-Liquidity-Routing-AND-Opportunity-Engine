@@ -81,6 +81,53 @@ _MOCK_BOOKS_ARBITRAGE: dict[tuple[Asset, Asset], list[tuple[float, float]]] = {
 }
 
 
+# --- Mock graph designed to make strategies diverge ---
+# Intent:
+# - Direct XRP->USD looks good in one step
+# - XRP->EUR looks slightly worse if you only value EUR->USD directly
+# - But a second planned move EUR->JPY can unlock much higher final USD value
+#   if lookahead can reason beyond one-step base valuation.
+_MOCK_BOOKS_DIVERGENCE: dict[tuple[Asset, Asset], list[tuple[float, float]]] = {
+    (Asset("XRP", None), Asset("USD", DEFAULT_ISSUER)): [(2.00, 10000.0)],
+    (Asset("XRP", None), Asset("EUR", DEFAULT_ISSUER)): [(2.05, 10000.0)],
+    (Asset("EUR", DEFAULT_ISSUER), Asset("USD", DEFAULT_ISSUER)): [(0.95, 10000.0)],
+    (Asset("EUR", DEFAULT_ISSUER), Asset("JPY", DEFAULT_ISSUER)): [(1.20, 10000.0)],
+    (Asset("JPY", DEFAULT_ISSUER), Asset("USD", DEFAULT_ISSUER)): [(1.80, 10000.0)],
+    (Asset("USD", DEFAULT_ISSUER), Asset("XRP", None)): [(0.48, 10000.0)],
+}
+
+
+def _mock_fetch_divergence(
+    client: object,
+    src_currency: str,
+    src_issuer: str | None,
+    dst_currency: str,
+    dst_issuer: str | None,
+    limit: int = BOOK_DEPTH,
+) -> list[Level]:
+    src_key = Asset(src_currency, src_issuer)
+    dst_key = Asset(dst_currency, dst_issuer)
+    pairs = _MOCK_BOOKS_DIVERGENCE.get((src_key, dst_key), [])
+    return [Level(rate=r, capacity=c) for r, c in pairs[:limit]]
+
+
+def get_mock_graph_divergence(
+    limit_per_book: int = BOOK_DEPTH,
+) -> dict[Asset, list[MarketEdge]]:
+    """Mock graph that accentuates strategy divergence under short-horizon greedy settings."""
+    pairs = [
+        ("XRP", None, "USD", DEFAULT_ISSUER),
+        ("XRP", None, "EUR", DEFAULT_ISSUER),
+        ("EUR", DEFAULT_ISSUER, "USD", DEFAULT_ISSUER),
+        ("EUR", DEFAULT_ISSUER, "JPY", DEFAULT_ISSUER),
+        ("JPY", DEFAULT_ISSUER, "USD", DEFAULT_ISSUER),
+        ("USD", DEFAULT_ISSUER, "XRP", None),
+    ]
+    return build_graph_from_pairs(
+        pairs, _mock_fetch_divergence, client=None, limit_per_book=limit_per_book
+    )
+
+
 def _mock_fetch_arbitrage(
     client: object,
     src_currency: str,
