@@ -4,7 +4,7 @@ Arbitrage scanner: run Bellman-Ford, extract cycle, simulate realistic fill, rep
 import logging
 from dataclasses import dataclass
 
-from .graph import MarketEdge
+from .graph import MarketEdge, Asset
 from .routing import bellman_ford_negative_cycle
 from .simulate import simulate_path
 from .config import TRADING_FEE
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ArbitrageReport:
     """One arbitrage opportunity: cycle, profit estimate, confidence heuristic."""
-    cycle: list[str]
+    cycle: list[Asset]
     profit_pct: float
     profit_absolute: float
     input_amount: float
@@ -24,7 +24,7 @@ class ArbitrageReport:
 
 
 def scan_arbitrage(
-    graph: dict[str, list[MarketEdge]],
+    graph: dict[Asset, list[MarketEdge]],
     trial_amount: float = 1000.0,
     fee_fraction: float = TRADING_FEE,
 ) -> ArbitrageReport | None:

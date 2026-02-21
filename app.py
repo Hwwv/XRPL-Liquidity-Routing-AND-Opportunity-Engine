@@ -20,16 +20,15 @@ warnings.filterwarnings("ignore", message=".*to view this Streamlit app on a bro
 # Suppress Streamlit logging warnings
 logging.getLogger("streamlit").setLevel(logging.ERROR)
 
-import streamlit as st
-
-# Suppress Streamlit logging warnings
-logging.getLogger("streamlit").setLevel(logging.ERROR)
 from xrpl_router.config import DEFAULT_ISSUER, TRADING_FEE, MAX_HOPS, MAX_PATHS
+from xrpl_router.graph import Asset
 from xrpl_router.loader import get_graph
 from xrpl_router.routing import dijkstra_best_path
 from xrpl_router.simulate import simulate_path
 from xrpl_router.arbitrage import scan_arbitrage
 from xrpl_router.strategy import greedy_agent_step
+
+import streamlit as st
 
 
 def generate_graph_dot(graph: dict, path: list = None) -> str:
@@ -45,7 +44,7 @@ def generate_graph_dot(graph: dict, path: list = None) -> str:
             nodes.add(edge.dst)
     
     # Add nodes
-    for node in sorted(nodes):
+    for node in sorted(nodes, key=str):
         dot_lines.append(f'  "{node}" [label="{node}"];')
     
     # Add edges
@@ -74,16 +73,16 @@ def _asset_key(currency: str, issuer: str | None) -> str:
     return f"{currency.upper()}:{issuer or ''}"
 
 
-def _resolve_asset(s: str) -> str:
+def _resolve_asset(s: str) -> Asset:
     s = (s or "").strip()
     if not s:
-        return "XRP"
+        return Asset("XRP", None)
     if s.upper() == "XRP":
-        return "XRP"
+        return Asset("XRP", None)
     if ":" in s:
         cur, iss = s.split(":", 1)
-        return _asset_key(cur, iss.strip() or None)
-    return _asset_key(s, DEFAULT_ISSUER)
+        return Asset(cur.upper(), iss.strip() or None)
+    return Asset(s.upper(), DEFAULT_ISSUER)
 
 
 # --- Streamlit app (single entrypoint so context is correct) ---
@@ -116,7 +115,7 @@ if mode == "Route":
                 st.warning(f"No path from {source} to {target}.")
             else:
                 sim = simulate_path(result.path, graph, amount, TRADING_FEE)
-                st.success("Best path: **" + " → ".join(result.path) + "**")
+                st.success("Best path: **" + " → ".join(str(p) for p in result.path) + "**")
                 st.metric("Expected output (no slippage)", f"{result.effective_rate * amount:.4f}")
                 st.metric("Simulated output (slippage + fees)", f"{sim.output_amount:.4f}")
                 st.metric("Effective rate", f"{sim.effective_rate:.4f}")
@@ -177,7 +176,7 @@ elif mode == "Simulate":
             total = sum(portfolio.values())
             st.success("Simulation complete")
             st.metric("Final portfolio value", f"{total:.2f}")
-            st.json(portfolio)
+            st.json({str(asset): amount for asset, amount in portfolio.items()})
             if len(growth) > 1:
                 ret = (growth[-1] - growth[0]) / growth[0] if growth[0] else 0
                 st.metric("Total return", f"{ret:.2%}")
@@ -204,7 +203,7 @@ elif mode == "Visualization":
             else:
                 dot = generate_graph_dot(graph, result.path)
                 st.graphviz_chart(dot)
-                st.success(f"Best path: {' → '.join(result.path)}")
+                st.success(f"Best path: {' → '.join(str(p) for p in result.path)}")
                 sim = simulate_path(result.path, graph, 100.0, TRADING_FEE)
                 st.metric("Simulated output (100 input)", f"{sim.output_amount:.4f}")
 
