@@ -66,7 +66,7 @@ BASE_VALUE_MAX_HOPS: int = 3
 BASE_VALUE_MAX_PATHS: int = 3
 
 # --- Strategy mode / lookahead controls ---
-STRATEGY_MODE: str = "greedy"  # "greedy" | "extended-greedy"
+STRATEGY_MODE: str = "greedy"  # "legacy" | "greedy" | "extended-greedy"
 LOOKAHEAD_DEPTH: int = 2  # fixed at 2 in this version
 LOOKAHEAD_TOPK: int = 5
 LOOKAHEAD_MIN_GAIN_MULT: float = (

@@ -17,6 +17,7 @@ from .strategy import (
     AgentState,
     STRATEGY_EXTENDED_GREEDY,
     STRATEGY_GREEDY,
+    STRATEGY_LEGACY,
     greedy_agent_step,
     normalize_strategy_mode,
 )
@@ -35,8 +36,9 @@ def _resolve_asset(s: str) -> Asset:
 
 
 def _strategy_selector(key_prefix: str = "") -> str:
-    labels = ["Greedy", "Extended-Greedy (2-step lookahead)"]
+    labels = ["Legacy Greedy (EV)", "Greedy", "Extended-Greedy (2-step lookahead)"]
     label_to_mode = {
+        "Legacy Greedy (EV)": STRATEGY_LEGACY,
         "Greedy": STRATEGY_GREEDY,
         "Extended-Greedy (2-step lookahead)": STRATEGY_EXTENDED_GREEDY,
     }
@@ -44,7 +46,9 @@ def _strategy_selector(key_prefix: str = "") -> str:
     default_label = (
         "Extended-Greedy (2-step lookahead)"
         if normalized_default == STRATEGY_EXTENDED_GREEDY
-        else "Greedy"
+        else (
+            "Legacy Greedy (EV)" if normalized_default == STRATEGY_LEGACY else "Greedy"
+        )
     )
     selected_label = st.selectbox(
         "Strategy",

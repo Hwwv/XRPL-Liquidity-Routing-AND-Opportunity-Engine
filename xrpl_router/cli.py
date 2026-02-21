@@ -23,6 +23,7 @@ from .arbitrage import scan_arbitrage
 from .strategy import (
     STRATEGY_EXTENDED_GREEDY,
     STRATEGY_GREEDY,
+    STRATEGY_LEGACY,
     AgentState,
     greedy_agent_step,
 )
@@ -183,7 +184,7 @@ def main() -> int:
     sim_p.add_argument("--steps", type=int, default=20, help="Time steps")
     sim_p.add_argument(
         "--strategy",
-        choices=[STRATEGY_GREEDY, STRATEGY_EXTENDED_GREEDY],
+        choices=[STRATEGY_LEGACY, STRATEGY_GREEDY, STRATEGY_EXTENDED_GREEDY],
         default=STRATEGY_MODE,
         help="Strategy mode",
     )
