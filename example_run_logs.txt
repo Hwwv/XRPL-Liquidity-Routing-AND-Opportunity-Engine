@@ -1,0 +1,20 @@
+# Example run logs (conceptual / from unit tests)
+
+## Route (Mode A) — with live Testnet
+$ python -m xrpl_router.cli route --from XRP --to USD --amount 100
+# Output: Best Path, Expected Output, Simulated Output, Effective Rate
+
+## Arbitrage (Mode B)
+$ python -m xrpl_router.cli arbitrage
+# If cycle: cycle path, profit %, confidence. Else: "No arbitrage cycle detected."
+
+## Simulate (Mode C)
+$ python -m xrpl_router.cli simulate --asset XRP --amount 1000 --steps 20
+# Output: Final Portfolio, Final Portfolio Value, Growth Curve, Total Return
+
+## Using Devnet
+$ XRPL_NETWORK=devnet python -m xrpl_router.cli route --from XRP --to USD --amount 50
+
+## Unit tests (deterministic, no network)
+$ python -m unittest discover -s xrpl_router/tests -v
+# Ran 17 tests — OK
