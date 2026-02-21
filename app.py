@@ -26,7 +26,7 @@ from xrpl_router.loader import get_graph
 from xrpl_router.routing import dijkstra_best_path
 from xrpl_router.simulate import simulate_path
 from xrpl_router.arbitrage import scan_arbitrage
-from xrpl_router.strategy import greedy_agent_step
+from xrpl_router.strategy import AgentState, greedy_agent_step
 
 import streamlit as st
 
@@ -36,23 +36,23 @@ def generate_graph_dot(graph: dict, path: list = None) -> str:
     dot_lines = ["digraph LiquidityGraph {"]
     dot_lines.append("  rankdir=LR;")  # Left to right layout
     dot_lines.append("  node [shape=circle];")
-    
+
     # Collect all nodes
     nodes = set(graph.keys())
     for edges in graph.values():
         for edge in edges:
             nodes.add(edge.dst)
-    
+
     # Add nodes
     for node in sorted(nodes, key=str):
         dot_lines.append(f'  "{node}" [label="{node}"];')
-    
+
     # Add edges
     path_edges = set()
     if path:
         for i in range(len(path) - 1):
-            path_edges.add((path[i], path[i+1]))
-    
+            path_edges.add((path[i], path[i + 1]))
+
     for from_asset, edges in graph.items():
         for edge in edges:
             to_asset = edge.dst
@@ -61,8 +61,10 @@ def generate_graph_dot(graph: dict, path: list = None) -> str:
                 label = f"{rate:.4f} (fee:{TRADING_FEE:.4f})"
                 color = "red" if (from_asset, to_asset) in path_edges else "black"
                 penwidth = "3" if (from_asset, to_asset) in path_edges else "1"
-                dot_lines.append(f'  "{from_asset}" -> "{to_asset}" [label="{label}", color={color}, penwidth={penwidth}];')
-    
+                dot_lines.append(
+                    f'  "{from_asset}" -> "{to_asset}" [label="{label}", color={color}, penwidth={penwidth}];'
+                )
+
     dot_lines.append("}")
     return "\n".join(dot_lines)
 
@@ -88,10 +90,20 @@ def _resolve_asset(s: str) -> Asset:
 # --- Streamlit app (single entrypoint so context is correct) ---
 st.set_page_config(page_title="XRPL Router", layout="wide")
 st.title("XRPL Liquidity Routing & Opportunity Engine")
-st.caption("Route optimization, arbitrage scan, and greedy agent simulation (paper trading only).")
+st.caption(
+    "Route optimization, arbitrage scan, and greedy agent simulation (paper trading only)."
+)
 
-use_mock = st.sidebar.checkbox("Use mock data (no network)", value=True, help="Deterministic data for testing without XRPL.")
-mode = st.sidebar.radio("Mode", ["Route", "Arbitrage", "Simulate", "Visualization", "Comparison"], horizontal=True)
+use_mock = st.sidebar.checkbox(
+    "Use mock data (no network)",
+    value=True,
+    help="Deterministic data for testing without XRPL.",
+)
+mode = st.sidebar.radio(
+    "Mode",
+    ["Route", "Arbitrage", "Simulate", "Visualization", "Comparison"],
+    horizontal=True,
+)
 
 if mode == "Route":
     st.header("Route optimization")
@@ -106,7 +118,9 @@ if mode == "Route":
         with st.spinner("Building graph..."):
             graph = get_graph(use_mock=use_mock)
         if not graph:
-            st.error("No order book data. Try live data (uncheck mock) or check network.")
+            st.error(
+                "No order book data. Try live data (uncheck mock) or check network."
+            )
         else:
             src = _resolve_asset(source)
             tgt = _resolve_asset(target)
@@ -115,21 +129,32 @@ if mode == "Route":
                 st.warning(f"No path from {source} to {target}.")
             else:
                 sim = simulate_path(result.path, graph, amount, TRADING_FEE)
-                st.success("Best path: **" + " → ".join(str(p) for p in result.path) + "**")
-                st.metric("Expected output (no slippage)", f"{result.effective_rate * amount:.4f}")
-                st.metric("Simulated output (slippage + fees)", f"{sim.output_amount:.4f}")
+                st.success(
+                    "Best path: **" + " → ".join(str(p) for p in result.path) + "**"
+                )
+                st.metric(
+                    "Expected output (no slippage)",
+                    f"{result.effective_rate * amount:.4f}",
+                )
+                st.metric(
+                    "Simulated output (slippage + fees)", f"{sim.output_amount:.4f}"
+                )
                 st.metric("Effective rate", f"{sim.effective_rate:.4f}")
 
 elif mode == "Arbitrage":
     st.header("Arbitrage scan")
-    trial_amount = st.number_input("Trial amount", min_value=1.0, value=1000.0, step=100.0)
+    trial_amount = st.number_input(
+        "Trial amount", min_value=1.0, value=1000.0, step=100.0
+    )
     if st.button("Scan for arbitrage"):
         with st.spinner("Building graph and running Bellman-Ford..."):
             graph = get_graph(use_mock=use_mock)
         if not graph:
             st.error("No order book data.")
         else:
-            report = scan_arbitrage(graph, trial_amount=trial_amount, fee_fraction=TRADING_FEE)
+            report = scan_arbitrage(
+                graph, trial_amount=trial_amount, fee_fraction=TRADING_FEE
+            )
             if report is None:
                 st.info("No arbitrage cycle detected.")
             else:
@@ -141,13 +166,22 @@ elif mode == "Arbitrage":
 
 elif mode == "Simulate":
     st.header("Greedy agent simulation")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         asset = st.text_input("Initial asset", value="XRP")
     with col2:
-        amount = st.number_input("Initial amount", min_value=0.01, value=1000.0, step=100.0)
+        amount = st.number_input(
+            "Initial amount", min_value=0.01, value=1000.0, step=100.0
+        )
     with col3:
         steps = st.number_input("Steps", min_value=1, value=20, step=1)
+    with col4:
+        strategy_mode = st.selectbox(
+            "Strategy mode",
+            options=["base", "legacy"],
+            index=0,
+            help="base = target-asset scoring + cooldown, legacy = original EV greedy",
+        )
     if st.button("Run simulation"):
         with st.spinner("Running greedy agent..."):
             graph = get_graph(use_mock=use_mock)
@@ -160,28 +194,33 @@ elif mode == "Simulate":
             debug_logs = []
             hold_count = 0
             trade_count = 0
+            state = AgentState()
             last_asset = None
-            
+
             for step in range(steps - 1):
                 choice, used = greedy_agent_step(
-                    graph, portfolio,
+                    graph,
+                    portfolio,
                     fee_fraction=TRADING_FEE,
                     max_hops=MAX_HOPS,
                     max_paths=MAX_PATHS,
+                    step=step,
+                    state=state,
                     last_asset=last_asset,
+                    strategy_mode=strategy_mode,
                 )
-                
+
                 if choice is None or used == "":
                     hold_count += 1
                     # Log HOLD decision
                     if step < 20:
                         debug_logs.append(f"Step {step+1}: HOLD (no profitable trade)")
                     continue
-                
+
                 amt = portfolio.get(used, 0)
                 if amt <= 0:
                     break
-                
+
                 trade_count += 1
                 # Debug logging for first 20 steps and every 100 steps
                 if step < 20 or step % 100 == 0:
@@ -193,17 +232,17 @@ elif mode == "Simulate":
                         f"{choice.path[-1]}({choice.output_amount:.2f}), ratio={ratio:.4f}, "
                         f"EV_ratio={ev_ratio:.6f}"
                     )
-                
-                last_asset = choice.path[-1]  # Track destination for next reversal guard check
+
                 portfolio[used] = 0.0
                 dest = choice.path[-1]
+                last_asset = dest
                 portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
                 growth.append(sum(portfolio.values()))
             total = sum(portfolio.values())
             st.success("Simulation complete")
             st.metric("Final portfolio value", f"{total:.2f}")
             st.json({str(asset): amount for asset, amount in portfolio.items()})
-            
+
             # Summary stats
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -213,12 +252,12 @@ elif mode == "Simulate":
             with col3:
                 hold_pct = (hold_count / steps * 100) if steps > 0 else 0
                 st.metric("Hold %", f"{hold_pct:.1f}%")
-            
+
             if debug_logs:
                 st.subheader("Debug Logs (First 20 steps + every 100 steps)")
                 for log in debug_logs:
                     st.text(log)
-            
+
             if len(growth) > 1:
                 ret = (growth[-1] - growth[0]) / growth[0] if growth[0] else 0
                 st.metric("Total return", f"{ret:.2%}")
@@ -255,8 +294,22 @@ elif mode == "Comparison":
     with col1:
         asset = st.text_input("Initial asset", value="XRP", key="comp_asset")
     with col2:
-        amount = st.number_input("Initial amount", min_value=0.01, value=1000.0, step=100.0, key="comp_amount")
-    steps = st.number_input("Simulation steps", min_value=1, value=10, step=1, key="comp_steps")
+        amount = st.number_input(
+            "Initial amount",
+            min_value=0.01,
+            value=1000.0,
+            step=100.0,
+            key="comp_amount",
+        )
+    steps = st.number_input(
+        "Simulation steps", min_value=1, value=10, step=1, key="comp_steps"
+    )
+    strategy_mode = st.selectbox(
+        "Greedy strategy mode",
+        options=["base", "legacy"],
+        index=0,
+        key="comp_strategy_mode",
+    )
     target = st.text_input("Target asset for route", value="USD", key="comp_target")
     if st.button("Compare strategies"):
         with st.spinner("Running comparison..."):
@@ -266,44 +319,66 @@ elif mode == "Comparison":
         else:
             a = _resolve_asset(asset)
             tgt = _resolve_asset(target)
-            
+
             # Route strategy: single conversion to target
             route_result = dijkstra_best_path(graph, a, tgt)
             route_value = 0
             if route_result:
                 sim = simulate_path(route_result.path, graph, amount, TRADING_FEE)
                 route_value = sim.output_amount
-            
+
             # Greedy strategy: simulate over steps
             portfolio = {a: amount}
             growth = [amount]
-            for _ in range(steps - 1):
-                choice, used = greedy_agent_step(graph, portfolio, fee_fraction=TRADING_FEE, max_hops=MAX_HOPS, max_paths=MAX_PATHS)
-                if choice is None or used == "" or choice.expected_value <= 0:
+            state = AgentState()
+            last_asset = None
+            for step in range(steps - 1):
+                choice, used = greedy_agent_step(
+                    graph,
+                    portfolio,
+                    fee_fraction=TRADING_FEE,
+                    max_hops=MAX_HOPS,
+                    max_paths=MAX_PATHS,
+                    step=step,
+                    state=state,
+                    last_asset=last_asset,
+                    strategy_mode=strategy_mode,
+                )
+                if choice is None or used == "":
                     break
                 amt = portfolio.get(used, 0)
                 if amt <= 0:
                     break
                 portfolio[used] = 0.0
                 dest = choice.path[-1]
+                last_asset = dest
                 portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
                 growth.append(sum(portfolio.values()))
             greedy_value = sum(portfolio.values())
-            
+
             st.subheader("Results")
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("Route to target", f"{route_value:.2f}" if route_result else "No path")
+                st.metric(
+                    "Route to target",
+                    f"{route_value:.2f}" if route_result else "No path",
+                )
             with col2:
                 st.metric("Greedy simulation", f"{greedy_value:.2f}")
             if route_result and greedy_value > 0:
-                diff = ((greedy_value - route_value) / route_value) * 100 if route_value else 0
+                diff = (
+                    ((greedy_value - route_value) / route_value) * 100
+                    if route_value
+                    else 0
+                )
                 st.metric("Greedy vs Route", f"{diff:+.2f}%")
             if len(growth) > 1:
                 st.line_chart({"Greedy portfolio": growth})
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("**Network:** Testnet/Devnet (see `XRPL_NETWORK` env). Mock ignores network.")
+st.sidebar.markdown(
+    "**Network:** Testnet/Devnet (see `XRPL_NETWORK` env). Mock ignores network."
+)
 
 
 if __name__ == "__main__":

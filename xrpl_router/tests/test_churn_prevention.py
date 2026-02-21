@@ -1,141 +1,116 @@
 """
-Tests for greedy agent churn prevention logic.
+Tests for base-asset scoring and cooldown/reversal protection.
 """
+
 import unittest
-from xrpl_router.graph import Asset
+from types import SimpleNamespace
+
+from xrpl_router import config as cfg
+from xrpl_router.graph import Asset, MarketEdge
 from xrpl_router.mock_data import get_mock_graph
-from xrpl_router.strategy import greedy_agent_step
-from xrpl_router.config import TRADING_FEE, MAX_HOPS, MAX_PATHS, MIN_EV_MULTIPLIER
+from xrpl_router.orderbooks import Level
+from xrpl_router.strategy import AgentState, greedy_agent_step
+from xrpl_router.valuation import value_in_base
 
 
 class TestChurnPrevention(unittest.TestCase):
-    
-    def test_churn_loss_without_guard(self):
-        """
-        Test baseline: without anti-churn guard, portfolio loses value over time due to spreads.
-        This demonstrates the problem we're fixing.
-        """
+    def test_long_run_mock_does_not_collapse(self):
         graph = get_mock_graph()
+        state = AgentState()
         portfolio = {Asset("XRP", None): 1000.0}
-        
-        for step in range(200):
-            choice, used = greedy_agent_step(
-                graph, portfolio,
-                fee_fraction=TRADING_FEE,
-                max_hops=MAX_HOPS,
-                max_paths=MAX_PATHS,
-            )
-            if choice is None or used == "":
-                break
-            amt = portfolio.get(used, 0)
-            if amt <= 0:
-                break
-            portfolio[used] = 0.0
-            dest = choice.path[-1]
-            portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
-        
-        final = sum(portfolio.values())
-        print(f"Without guard - Final portfolio after 200 steps: {final:.2f} (started with 1000.0)")
-        # Without guard, should lose significant value due to churn
-        # This may vary with mock data, but the point is to show the problem
+        initial_base = value_in_base(
+            Asset("XRP", None), 1000.0, cfg.BASE_ASSET, graph, cfg
+        )
 
-    def test_hold_logic_reduces_churn(self):
-        """
-        Test that the HOLD logic prevents excessive trading when threshold is high.
-        """
-        graph = get_mock_graph()
-        portfolio = {Asset("XRP", None): 1000.0}
-        
-        trade_count = 0
-        hold_count = 0
-        
+        trades = 0
+        holds = 0
         for step in range(1000):
             choice, used = greedy_agent_step(
-                graph, portfolio,
-                fee_fraction=TRADING_FEE,
-                max_hops=MAX_HOPS,
-                max_paths=MAX_PATHS,
+                graph,
+                portfolio,
+                fee_fraction=cfg.TRADING_FEE,
+                max_hops=cfg.MAX_HOPS,
+                max_paths=cfg.MAX_PATHS,
+                step=step,
+                state=state,
+                cfg=cfg,
             )
-            
             if choice is None or used == "":
-                hold_count += 1
+                holds += 1
                 continue
-            
-            trade_count += 1
-            amt = portfolio.get(used, 0)
+            trades += 1
+            amt = portfolio.get(used, 0.0)
             if amt <= 0:
                 break
             portfolio[used] = 0.0
-            dest = choice.path[-1]
-            portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
-        
-        final = sum(portfolio.values())
-        total_steps = trade_count + hold_count
-        hold_ratio = hold_count / total_steps if total_steps > 0 else 0
-        
-        print(f"With guard - Trades: {trade_count}, Holds: {hold_count}, Hold%: {hold_ratio:.1%}")
-        print(f"Final portfolio after 1000 steps: {final:.2f} (started with 1000.0)")
-        
-        # With MIN_EV_MULTIPLIER = 1.002, should have many HOLD decisions
-        self.assertGreater(hold_ratio, 0.7, f"Expected >70% holds, got {hold_ratio:.1%}")
-        
-        # Final portfolio should not collapse to near-zero
-        # With 0.2% threshold and spreads of 10%, expect reasonable preservation
-        self.assertGreater(final, 500.0, f"Portfolio collapsed to {final:.2f}, expected > 500.0")
+            dst = choice.path[-1]
+            portfolio[dst] = portfolio.get(dst, 0.0) + choice.output_amount
 
-    def test_min_ev_multiplier_enforcement(self):
-        """
-        Test that MIN_EV_MULTIPLIER is properly enforced.
-        """
-        graph = get_mock_graph()
-        portfolio = {Asset("XRP", None): 1000.0}
-        
-        choice, used = greedy_agent_step(
-            graph, portfolio,
-            fee_fraction=TRADING_FEE,
-            max_hops=MAX_HOPS,
-            max_paths=MAX_PATHS,
+        final_base = 0.0
+        for asset, amount in portfolio.items():
+            if amount <= 0:
+                continue
+            final_base += value_in_base(asset, amount, cfg.BASE_ASSET, graph, cfg)
+
+        total_steps = trades + holds
+        hold_ratio = (holds / total_steps) if total_steps else 0.0
+        self.assertGreaterEqual(final_base, 0.5 * initial_base)
+        self.assertGreaterEqual(hold_ratio, 0.7)
+
+    def test_reversal_blocked_during_cooldown(self):
+        a = Asset("A", None)
+        b = Asset("B", None)
+        graph = {
+            a: [
+                MarketEdge(src=a, dst=b, levels=[Level(rate=1.1, capacity=1_000_000.0)])
+            ],
+            b: [
+                MarketEdge(src=b, dst=a, levels=[Level(rate=1.1, capacity=1_000_000.0)])
+            ],
+        }
+        test_cfg = SimpleNamespace(
+            BASE_ASSET=Asset("A", None),
+            DEFAULT_ISSUER=cfg.DEFAULT_ISSUER,
+            BASE_VALUE_MAX_HOPS=3,
+            BASE_VALUE_MAX_PATHS=3,
+            TRADING_FEE=0.0,
+            MIN_BASE_GAIN_MULT=1.001,
+            COOLDOWN_STEPS=2,
+            REVERSE_BLOCK=True,
         )
-        
-        if choice is not None:
-            # If we get a trade, verify it exceeds the threshold
-            hold_amount = 1000.0
-            threshold = hold_amount * MIN_EV_MULTIPLIER
-            self.assertGreaterEqual(choice.expected_value, threshold,
-                                    f"Trade EV {choice.expected_value} should exceed threshold {threshold}")
 
-    def test_last_asset_tracking(self):
-        """
-        Test that last_asset is properly None initially.
-        """
-        graph = get_mock_graph()
-        portfolio = {Asset("XRP", None): 1000.0}
-        
-        # First call with no last_asset
+        state = AgentState()
+        portfolio = {a: 100.0}
+
         choice1, used1 = greedy_agent_step(
-            graph, portfolio,
-            fee_fraction=TRADING_FEE,
-            max_hops=MAX_HOPS,
-            max_paths=MAX_PATHS,
-            last_asset=None,
+            graph,
+            portfolio,
+            fee_fraction=0.0,
+            max_hops=2,
+            max_paths=3,
+            step=0,
+            state=state,
+            cfg=test_cfg,
         )
-        
-        if choice1 is not None and used1 != "":
-            # Simulate the trade
-            portfolio[Asset("XRP", None)] = 0.0
-            portfolio[choice1.path[-1]] = choice1.output_amount
-            
-            # Second call with last_asset set
-            choice2, used2 = greedy_agent_step(
-                graph, portfolio,
-                fee_fraction=TRADING_FEE,
-                max_hops=MAX_HOPS,
-                max_paths=MAX_PATHS,
-                last_asset=choice1.path[-1],  # Track where we came from
-            )
-            
-            # This test just verifies the API works without errors
-            self.assertIsNotNone(choice2 or used2 == "")
+        self.assertIsNotNone(choice1)
+        self.assertEqual(used1, a)
+        self.assertEqual(choice1.path[-1], b)
+
+        portfolio[a] = 0.0
+        portfolio[b] = choice1.output_amount
+
+        choice2, used2 = greedy_agent_step(
+            graph,
+            portfolio,
+            fee_fraction=0.0,
+            max_hops=2,
+            max_paths=3,
+            step=1,
+            state=state,
+            cfg=test_cfg,
+        )
+        self.assertIsNone(choice2)
+        self.assertEqual(used2, "")
 
 
 if __name__ == "__main__":

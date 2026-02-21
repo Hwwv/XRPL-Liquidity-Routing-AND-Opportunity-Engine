@@ -2,6 +2,7 @@
 Liquidity graph: directed multi-graph with capacity-limited edges.
 graph: Dict[Asset, List[MarketEdge]], keyed by source Asset.
 """
+
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,7 @@ class Asset:
 @dataclass
 class MarketEdge:
     """One directed edge: src -> dst with order book levels."""
+
     src: Asset
     dst: Asset
     levels: list["Level"] = field(default_factory=list)
@@ -47,7 +49,12 @@ def build_graph_from_pairs(
     graph: dict[Asset, list[MarketEdge]] = {}
     for src_currency, src_issuer, dst_currency, dst_issuer in pairs:
         levels = fetch_book_fn(
-            client, src_currency, src_issuer, dst_currency, dst_issuer, limit=limit_per_book
+            client,
+            src_currency,
+            src_issuer,
+            dst_currency,
+            dst_issuer,
+            limit=limit_per_book,
         )
         if not levels:
             continue
