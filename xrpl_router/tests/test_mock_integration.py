@@ -2,7 +2,12 @@
 Full-stack tests using mock data only (no network).
 Covers route, arbitrage, simulate end-to-end with deterministic mock graph.
 """
+import os
+import sys
 import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from xrpl_router.config import DEFAULT_ISSUER
 from xrpl_router.loader import get_graph
 from xrpl_router.mock_data import get_mock_graph, get_mock_graph_with_arbitrage
@@ -67,3 +72,7 @@ class TestMockIntegration(unittest.TestCase):
         choice = evaluate_routes(graph, "XRP", 100.0)
         self.assertIsNotNone(choice)
         self.assertGreaterEqual(len(choice.path), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

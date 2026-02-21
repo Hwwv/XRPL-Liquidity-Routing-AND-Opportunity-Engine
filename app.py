@@ -7,10 +7,23 @@ All Streamlit calls live in this file so ScriptRunContext is set correctly.
 """
 import sys
 import os
+import warnings
+import logging
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Suppress Streamlit warnings when run in bare mode
+warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+warnings.filterwarnings("ignore", message=".*Session state does not function.*")
+warnings.filterwarnings("ignore", message=".*to view this Streamlit app on a browser.*")
+
+# Suppress Streamlit logging warnings
+logging.getLogger("streamlit").setLevel(logging.ERROR)
+
 import streamlit as st
+
+# Suppress Streamlit logging warnings
+logging.getLogger("streamlit").setLevel(logging.ERROR)
 from xrpl_router.config import DEFAULT_ISSUER, TRADING_FEE, MAX_HOPS, MAX_PATHS
 from xrpl_router.loader import get_graph
 from xrpl_router.routing import dijkstra_best_path
@@ -136,3 +149,7 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Network:** Testnet/Devnet (see `XRPL_NETWORK` env). Mock ignores network.")
+
+
+if __name__ == "__main__":
+    print("This is a Streamlit app. Run with: streamlit run app.py")
