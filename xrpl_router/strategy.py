@@ -9,7 +9,7 @@ from typing import Callable
 
 from .graph import MarketEdge, Asset
 from .simulate import simulate_path, compute_success_probability
-from .config import MAX_HOPS, MAX_PATHS, TRADING_FEE, RISK_PENALTY, DEFAULT_SUCCESS_PROBABILITY, FAILURE_PENALTY, LAMBDA_HOPS, LAMBDA_SPREAD, LAMBDA_DEPTH
+from .config import MAX_HOPS, MAX_PATHS, TRADING_FEE, RISK_PENALTY, DEFAULT_SUCCESS_PROBABILITY, FAILURE_PENALTY, LAMBDA_HOPS, LAMBDA_SPREAD, LAMBDA_DEPTH, MIN_EV_MULTIPLIER, REVERSE_MIN_EV_MULTIPLIER, ENABLE_REVERSAL_GUARD
 from .graph import Asset
 
 
@@ -37,6 +37,9 @@ class RouteChoice:
     success_probability: float
     effective_rate: float
     score: float
+    ev_gain_ratio: float  # expected_value / input_amount (for hold comparison)
+    input_amount: float  # source amount before trade
+    hold_reason: str = ""  # reason if this is a HOLD decision
 
 
 def generate_candidate_paths(
@@ -101,6 +104,7 @@ def evaluate_routes(
         spread_penalty = 0.0  # placeholder
         depth_penalty = 0.0  # placeholder
         score = ev - LAMBDA_HOPS * hop_count - LAMBDA_SPREAD * spread_penalty - LAMBDA_DEPTH * depth_penalty
+        ev_gain_ratio = ev / amount if amount > 0 else 0.0
         if best is None or score > best.score:
             best = RouteChoice(
                 path=path,
@@ -109,6 +113,8 @@ def evaluate_routes(
                 success_probability=p_success,
                 effective_rate=sim.effective_rate,
                 score=score,
+                ev_gain_ratio=ev_gain_ratio,
+                input_amount=amount,
             )
     return best
 
@@ -119,13 +125,19 @@ def greedy_agent_step(
     fee_fraction: float = TRADING_FEE,
     max_hops: int = MAX_HOPS,
     max_paths: int = MAX_PATHS,
+    last_asset: Asset | None = None,  # track previous destination for reversal guard
 ) -> tuple[RouteChoice | None, str]:
     """
     From current portfolio, pick asset with positive balance and choose best route.
-    Returns (best_choice, asset_used) or (None, "") if no positive balance or no route.
+    Implements HOLD logic: only trade if EV significantly exceeds hold_ev (baseline = current_amount).
+    
+    Returns (best_choice, asset_used):
+    - best_choice is a RouteChoice if trading, or a HOLD marker with path=[], or None if no balance
+    - asset_used is the asset key we're trading from (or "" if HOLD)
     """
     best: RouteChoice | None = None
     asset_used = ""
+    
     for asset_str, balance in portfolio.items():
         if balance <= 0:
             continue
@@ -134,13 +146,35 @@ def greedy_agent_step(
             asset = _resolve_asset(asset_str)
         else:
             asset = asset_str
+        
         choice = evaluate_routes(
             graph, asset, balance,
             fee_fraction=fee_fraction,
             max_hops=max_hops,
             max_paths=max_paths,
         )
-        if choice and choice.score > 0 and (best is None or choice.score > best.score):
-            best = choice
-            asset_used = asset_str
+        if choice and choice.score > 0:
+            # Check reversal guard: if destination is recent source, require higher threshold
+            if ENABLE_REVERSAL_GUARD and last_asset is not None and choice.path[-1] == last_asset:
+                reversal_threshold = balance * REVERSE_MIN_EV_MULTIPLIER
+                if choice.expected_value < reversal_threshold:
+                    choice.hold_reason = f"reversal guard: EV {choice.expected_value:.2f} < {reversal_threshold:.2f}"
+                    logger.debug(f"Reversal guard triggered: {asset} → {choice.path[-1]}, {choice.hold_reason}")
+                    continue
+            
+            # Main threshold: require MIN_EV_MULTIPLIER improvement over HOLD
+            hold_threshold = balance * MIN_EV_MULTIPLIER
+            if choice.expected_value < hold_threshold:
+                choice.hold_reason = f"below threshold: EV {choice.expected_value:.2f} < {hold_threshold:.2f}"
+                logger.debug(f"Below threshold: {asset}, {choice.hold_reason}")
+                continue
+            
+            if best is None or choice.score > best.score:
+                best = choice
+                asset_used = asset_str
+    
+    if best is None:
+        logger.debug("No profitable trade found, signaling HOLD")
+        return None, ""
+    
     return best, asset_used

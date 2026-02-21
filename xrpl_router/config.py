@@ -41,6 +41,11 @@ LAMBDA_HOPS: float = 0.01  # penalty per hop
 LAMBDA_SPREAD: float = 0.1  # penalty for spread
 LAMBDA_DEPTH: float = 0.05  # penalty for thin liquidity
 
+# --- Greedy agent anti-churn controls ---
+MIN_EV_MULTIPLIER: float = 1.002  # require +0.2% improvement over HOLD to trade (1.002 = +0.2%)
+REVERSE_MIN_EV_MULTIPLIER: float = 1.01  # require +1% to execute immediate reversal (optional guard)
+ENABLE_REVERSAL_GUARD: bool = False  # set True to prevent immediate back-and-forth trading
+
 # --- Default order book pairs (src_currency, src_issuer, dst_currency, dst_issuer) ---
 # Testnet/Devnet common gateway issuer (ripple.com)
 DEFAULT_ISSUER = "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B"

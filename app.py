@@ -157,18 +157,44 @@ elif mode == "Simulate":
             a = _resolve_asset(asset)
             portfolio = {a: amount}
             growth = [amount]
-            for _ in range(steps - 1):
+            debug_logs = []
+            hold_count = 0
+            trade_count = 0
+            last_asset = None
+            
+            for step in range(steps - 1):
                 choice, used = greedy_agent_step(
                     graph, portfolio,
                     fee_fraction=TRADING_FEE,
                     max_hops=MAX_HOPS,
                     max_paths=MAX_PATHS,
+                    last_asset=last_asset,
                 )
-                if choice is None or used == "" or choice.expected_value <= 0:
-                    break
+                
+                if choice is None or used == "":
+                    hold_count += 1
+                    # Log HOLD decision
+                    if step < 20:
+                        debug_logs.append(f"Step {step+1}: HOLD (no profitable trade)")
+                    continue
+                
                 amt = portfolio.get(used, 0)
                 if amt <= 0:
                     break
+                
+                trade_count += 1
+                # Debug logging for first 20 steps and every 100 steps
+                if step < 20 or step % 100 == 0:
+                    path_str = " → ".join(str(p) for p in choice.path)
+                    ratio = choice.output_amount / amt if amt > 0 else 0
+                    ev_ratio = choice.ev_gain_ratio
+                    debug_logs.append(
+                        f"Step {step+1}: TRADE {used}({amt:.2f}) → {path_str} → "
+                        f"{choice.path[-1]}({choice.output_amount:.2f}), ratio={ratio:.4f}, "
+                        f"EV_ratio={ev_ratio:.6f}"
+                    )
+                
+                last_asset = choice.path[-1]  # Track destination for next reversal guard check
                 portfolio[used] = 0.0
                 dest = choice.path[-1]
                 portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
@@ -177,6 +203,22 @@ elif mode == "Simulate":
             st.success("Simulation complete")
             st.metric("Final portfolio value", f"{total:.2f}")
             st.json({str(asset): amount for asset, amount in portfolio.items()})
+            
+            # Summary stats
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Trades executed", trade_count)
+            with col2:
+                st.metric("Steps held", hold_count)
+            with col3:
+                hold_pct = (hold_count / steps * 100) if steps > 0 else 0
+                st.metric("Hold %", f"{hold_pct:.1f}%")
+            
+            if debug_logs:
+                st.subheader("Debug Logs (First 20 steps + every 100 steps)")
+                for log in debug_logs:
+                    st.text(log)
+            
             if len(growth) > 1:
                 ret = (growth[-1] - growth[0]) / growth[0] if growth[0] else 0
                 st.metric("Total return", f"{ret:.2%}")
