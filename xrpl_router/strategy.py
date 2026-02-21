@@ -14,6 +14,22 @@ from .valuation import value_in_base
 
 logger = logging.getLogger(__name__)
 
+STRATEGY_TARGET_ASSET = "target_asset_cooldown"
+STRATEGY_LEGACY = "legacy_greedy"
+_STRATEGY_ALIASES = {
+    "base": STRATEGY_TARGET_ASSET,
+    "target": STRATEGY_TARGET_ASSET,
+    STRATEGY_TARGET_ASSET: STRATEGY_TARGET_ASSET,
+    "legacy": STRATEGY_LEGACY,
+    STRATEGY_LEGACY: STRATEGY_LEGACY,
+}
+
+
+def normalize_strategy_mode(strategy_mode: str | None) -> str:
+    return _STRATEGY_ALIASES.get(
+        (strategy_mode or "").strip().lower(), STRATEGY_TARGET_ASSET
+    )
+
 
 def _resolve_asset(s: str | Asset) -> Asset:
     if isinstance(s, Asset):
@@ -174,12 +190,13 @@ def evaluate_routes(
     max_hops: int = config_module.MAX_HOPS,
     max_paths: int = config_module.MAX_PATHS,
     cfg: Any = config_module,
-    strategy_mode: str = "base",
+    strategy_mode: str = STRATEGY_TARGET_ASSET,
 ) -> RouteChoice | None:
     """
     Return highest-scoring candidate route (including HOLD baseline).
     """
-    if strategy_mode == "legacy":
+    mode = normalize_strategy_mode(strategy_mode)
+    if mode == STRATEGY_LEGACY:
         return evaluate_routes_legacy(
             graph,
             source,
@@ -310,13 +327,14 @@ def greedy_agent_step(
     step: int = 0,
     state: AgentState | None = None,
     cfg: Any = config_module,
-    strategy_mode: str = "base",
+    strategy_mode: str = STRATEGY_TARGET_ASSET,
 ) -> tuple[RouteChoice | None, Any]:
     """
     Pick one action for the portfolio at this step.
     Returns (trade_choice, portfolio_key_used). HOLD returns (None, "").
     """
-    if strategy_mode == "legacy":
+    mode = normalize_strategy_mode(strategy_mode)
+    if mode == STRATEGY_LEGACY:
         return greedy_agent_step_legacy(
             graph,
             portfolio,

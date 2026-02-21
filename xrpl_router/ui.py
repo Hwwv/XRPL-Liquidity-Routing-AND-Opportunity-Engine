@@ -3,31 +3,106 @@ Streamlit UI for XRPL Liquidity Routing & Opportunity Engine.
 Run: streamlit run xrpl_router.ui
 """
 
+from types import SimpleNamespace
+
 import streamlit as st
+from . import config as router_cfg
 from .config import DEFAULT_ISSUER, TRADING_FEE, MAX_HOPS, MAX_PATHS
+from .graph import Asset
 from .loader import get_graph
 from .routing import dijkstra_best_path
 from .simulate import simulate_path
 from .arbitrage import scan_arbitrage
-from .strategy import AgentState, greedy_agent_step
+from .strategy import (
+    AgentState,
+    STRATEGY_LEGACY,
+    STRATEGY_TARGET_ASSET,
+    greedy_agent_step,
+)
 
 
-def _asset_key(currency: str, issuer: str | None) -> str:
-    if currency.upper() == "XRP":
-        return "XRP"
-    return f"{currency.upper()}:{issuer or ''}"
-
-
-def _resolve_asset(s: str) -> str:
+def _resolve_asset(s: str) -> Asset:
     s = (s or "").strip()
     if not s:
-        return "XRP"
+        return Asset("XRP", None)
     if s.upper() == "XRP":
-        return "XRP"
+        return Asset("XRP", None)
     if ":" in s:
         cur, iss = s.split(":", 1)
-        return _asset_key(cur, iss.strip() or None)
-    return _asset_key(s, DEFAULT_ISSUER)
+        return Asset(cur.upper(), iss.strip() or None)
+    return Asset(s.upper(), DEFAULT_ISSUER)
+
+
+def _strategy_selector(key_prefix: str = "") -> str:
+    labels = [
+        "Target-Asset Scoring + Cooldown",
+        "Legacy Greedy (EV)",
+    ]
+    label_to_mode = {
+        "Target-Asset Scoring + Cooldown": STRATEGY_TARGET_ASSET,
+        "Legacy Greedy (EV)": STRATEGY_LEGACY,
+    }
+    selected_label = st.selectbox(
+        "Strategy",
+        options=labels,
+        index=0,
+        key=f"{key_prefix}strategy",
+    )
+    return label_to_mode[selected_label]
+
+
+def _build_target_strategy_cfg(key_prefix: str = ""):
+    with st.expander("Target-Asset Strategy Settings", expanded=False):
+        base_asset = st.text_input(
+            "Base asset",
+            value=str(router_cfg.BASE_ASSET),
+            key=f"{key_prefix}base_asset",
+            help="Reference asset for scoring, e.g. XRP, USD, or USD:rIssuer",
+        )
+        min_base_gain_mult = st.number_input(
+            "Min base gain multiplier",
+            min_value=1.0,
+            value=float(router_cfg.MIN_BASE_GAIN_MULT),
+            step=0.0005,
+            format="%.4f",
+            key=f"{key_prefix}min_base_gain_mult",
+        )
+        cooldown_steps = st.number_input(
+            "Cooldown steps",
+            min_value=0,
+            value=int(router_cfg.COOLDOWN_STEPS),
+            step=1,
+            key=f"{key_prefix}cooldown_steps",
+        )
+        reverse_block = st.checkbox(
+            "Block immediate reversal during cooldown",
+            value=bool(router_cfg.REVERSE_BLOCK),
+            key=f"{key_prefix}reverse_block",
+        )
+        base_value_max_hops = st.number_input(
+            "Base valuation max hops",
+            min_value=1,
+            value=int(router_cfg.BASE_VALUE_MAX_HOPS),
+            step=1,
+            key=f"{key_prefix}base_value_max_hops",
+        )
+        base_value_max_paths = st.number_input(
+            "Base valuation max paths",
+            min_value=1,
+            value=int(router_cfg.BASE_VALUE_MAX_PATHS),
+            step=1,
+            key=f"{key_prefix}base_value_max_paths",
+        )
+    return SimpleNamespace(
+        DEFAULT_ISSUER=router_cfg.DEFAULT_ISSUER,
+        TRADING_FEE=router_cfg.TRADING_FEE,
+        BASE_ASSET=base_asset,
+        MIN_BASE_GAIN_MULT=float(min_base_gain_mult),
+        COOLDOWN_STEPS=int(cooldown_steps),
+        REVERSE_BLOCK=bool(reverse_block),
+        BASE_VALUE_MAX_HOPS=int(base_value_max_hops),
+        BASE_VALUE_MAX_PATHS=int(base_value_max_paths),
+    )
 
 
 def main():
@@ -105,7 +180,7 @@ def main():
 
     else:
         st.header("Greedy agent simulation")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         with col1:
             asset = st.text_input("Initial asset", value="XRP")
         with col2:
@@ -114,13 +189,12 @@ def main():
             )
         with col3:
             steps = st.number_input("Steps", min_value=1, value=20, step=1)
-        with col4:
-            strategy_mode = st.selectbox(
-                "Strategy mode",
-                options=["base", "legacy"],
-                index=0,
-                help="base = target-asset scoring + cooldown, legacy = original EV greedy",
-            )
+        strategy_mode = _strategy_selector("sim_")
+        strategy_cfg = (
+            _build_target_strategy_cfg("sim_")
+            if strategy_mode == STRATEGY_TARGET_ASSET
+            else router_cfg
+        )
         if st.button("Run simulation"):
             with st.spinner("Running greedy agent..."):
                 graph = get_graph(use_mock=use_mock)
@@ -143,6 +217,7 @@ def main():
                         state=state,
                         last_asset=last_asset,
                         strategy_mode=strategy_mode,
+                        cfg=strategy_cfg,
                     )
                     if choice is None or used == "":
                         break

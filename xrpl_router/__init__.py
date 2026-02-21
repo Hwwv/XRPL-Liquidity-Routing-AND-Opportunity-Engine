@@ -24,6 +24,9 @@ from .strategy import (
     evaluate_routes_legacy,
     greedy_agent_step,
     greedy_agent_step_legacy,
+    normalize_strategy_mode,
+    STRATEGY_LEGACY,
+    STRATEGY_TARGET_ASSET,
 )
 from .valuation import value_in_base
 
@@ -51,6 +54,9 @@ __all__ = [
     "evaluate_routes_legacy",
     "greedy_agent_step",
     "greedy_agent_step_legacy",
+    "normalize_strategy_mode",
+    "STRATEGY_LEGACY",
+    "STRATEGY_TARGET_ASSET",
     "RouteChoice",
     "AgentState",
     "value_in_base",

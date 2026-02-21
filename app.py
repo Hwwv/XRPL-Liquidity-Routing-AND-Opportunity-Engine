@@ -9,6 +9,7 @@ import sys
 import os
 import warnings
 import logging
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -20,13 +21,20 @@ warnings.filterwarnings("ignore", message=".*to view this Streamlit app on a bro
 # Suppress Streamlit logging warnings
 logging.getLogger("streamlit").setLevel(logging.ERROR)
 
+from xrpl_router import config as router_cfg
 from xrpl_router.config import DEFAULT_ISSUER, TRADING_FEE, MAX_HOPS, MAX_PATHS
 from xrpl_router.graph import Asset
 from xrpl_router.loader import get_graph
 from xrpl_router.routing import dijkstra_best_path
 from xrpl_router.simulate import simulate_path
 from xrpl_router.arbitrage import scan_arbitrage
-from xrpl_router.strategy import AgentState, greedy_agent_step
+from xrpl_router.valuation import value_in_base
+from xrpl_router.strategy import (
+    AgentState,
+    STRATEGY_LEGACY,
+    STRATEGY_TARGET_ASSET,
+    greedy_agent_step,
+)
 
 import streamlit as st
 
@@ -85,6 +93,78 @@ def _resolve_asset(s: str) -> Asset:
         cur, iss = s.split(":", 1)
         return Asset(cur.upper(), iss.strip() or None)
     return Asset(s.upper(), DEFAULT_ISSUER)
+
+
+def _strategy_selector(key_prefix: str = "") -> str:
+    labels = [
+        "Target-Asset Scoring + Cooldown",
+        "Legacy Greedy (EV)",
+    ]
+    label_to_mode = {
+        "Target-Asset Scoring + Cooldown": STRATEGY_TARGET_ASSET,
+        "Legacy Greedy (EV)": STRATEGY_LEGACY,
+    }
+    selected_label = st.selectbox(
+        "Strategy",
+        options=labels,
+        index=0,
+        key=f"{key_prefix}strategy",
+    )
+    return label_to_mode[selected_label]
+
+
+def _build_target_strategy_cfg(key_prefix: str = ""):
+    with st.expander("Target-Asset Strategy Settings", expanded=False):
+        base_asset = st.text_input(
+            "Base asset",
+            value=str(router_cfg.BASE_ASSET),
+            key=f"{key_prefix}base_asset",
+            help="Reference asset for scoring, e.g. XRP, USD, or USD:rIssuer",
+        )
+        min_base_gain_mult = st.number_input(
+            "Min base gain multiplier",
+            min_value=1.0,
+            value=float(router_cfg.MIN_BASE_GAIN_MULT),
+            step=0.0005,
+            format="%.4f",
+            key=f"{key_prefix}min_base_gain_mult",
+        )
+        cooldown_steps = st.number_input(
+            "Cooldown steps",
+            min_value=0,
+            value=int(router_cfg.COOLDOWN_STEPS),
+            step=1,
+            key=f"{key_prefix}cooldown_steps",
+        )
+        reverse_block = st.checkbox(
+            "Block immediate reversal during cooldown",
+            value=bool(router_cfg.REVERSE_BLOCK),
+            key=f"{key_prefix}reverse_block",
+        )
+        base_value_max_hops = st.number_input(
+            "Base valuation max hops",
+            min_value=1,
+            value=int(router_cfg.BASE_VALUE_MAX_HOPS),
+            step=1,
+            key=f"{key_prefix}base_value_max_hops",
+        )
+        base_value_max_paths = st.number_input(
+            "Base valuation max paths",
+            min_value=1,
+            value=int(router_cfg.BASE_VALUE_MAX_PATHS),
+            step=1,
+            key=f"{key_prefix}base_value_max_paths",
+        )
+    return SimpleNamespace(
+        DEFAULT_ISSUER=router_cfg.DEFAULT_ISSUER,
+        TRADING_FEE=router_cfg.TRADING_FEE,
+        BASE_ASSET=base_asset,
+        MIN_BASE_GAIN_MULT=float(min_base_gain_mult),
+        COOLDOWN_STEPS=int(cooldown_steps),
+        REVERSE_BLOCK=bool(reverse_block),
+        BASE_VALUE_MAX_HOPS=int(base_value_max_hops),
+        BASE_VALUE_MAX_PATHS=int(base_value_max_paths),
+    )
 
 
 # --- Streamlit app (single entrypoint so context is correct) ---
@@ -166,7 +246,7 @@ elif mode == "Arbitrage":
 
 elif mode == "Simulate":
     st.header("Greedy agent simulation")
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
         asset = st.text_input("Initial asset", value="XRP")
     with col2:
@@ -175,13 +255,12 @@ elif mode == "Simulate":
         )
     with col3:
         steps = st.number_input("Steps", min_value=1, value=20, step=1)
-    with col4:
-        strategy_mode = st.selectbox(
-            "Strategy mode",
-            options=["base", "legacy"],
-            index=0,
-            help="base = target-asset scoring + cooldown, legacy = original EV greedy",
-        )
+    strategy_mode = _strategy_selector("sim_")
+    strategy_cfg = (
+        _build_target_strategy_cfg("sim_")
+        if strategy_mode == STRATEGY_TARGET_ASSET
+        else router_cfg
+    )
     if st.button("Run simulation"):
         with st.spinner("Running greedy agent..."):
             graph = get_graph(use_mock=use_mock)
@@ -208,6 +287,7 @@ elif mode == "Simulate":
                     state=state,
                     last_asset=last_asset,
                     strategy_mode=strategy_mode,
+                    cfg=strategy_cfg,
                 )
 
                 if choice is None or used == "":
@@ -304,11 +384,11 @@ elif mode == "Comparison":
     steps = st.number_input(
         "Simulation steps", min_value=1, value=10, step=1, key="comp_steps"
     )
-    strategy_mode = st.selectbox(
-        "Greedy strategy mode",
-        options=["base", "legacy"],
-        index=0,
-        key="comp_strategy_mode",
+    strategy_mode = _strategy_selector("comp_")
+    strategy_cfg = (
+        _build_target_strategy_cfg("comp_")
+        if strategy_mode == STRATEGY_TARGET_ASSET
+        else router_cfg
     )
     target = st.text_input("Target asset for route", value="USD", key="comp_target")
     if st.button("Compare strategies"):
@@ -322,10 +402,14 @@ elif mode == "Comparison":
 
             # Route strategy: single conversion to target
             route_result = dijkstra_best_path(graph, a, tgt)
-            route_value = 0
+            route_value = 0.0
+            route_value_in_target = 0.0
             if route_result:
                 sim = simulate_path(route_result.path, graph, amount, TRADING_FEE)
                 route_value = sim.output_amount
+                route_value_in_target = value_in_base(
+                    tgt, route_value, tgt, graph, strategy_cfg
+                )
 
             # Greedy strategy: simulate over steps
             portfolio = {a: amount}
@@ -343,6 +427,7 @@ elif mode == "Comparison":
                     state=state,
                     last_asset=last_asset,
                     strategy_mode=strategy_mode,
+                    cfg=strategy_cfg,
                 )
                 if choice is None or used == "":
                     break
@@ -354,24 +439,34 @@ elif mode == "Comparison":
                 last_asset = dest
                 portfolio[dest] = portfolio.get(dest, 0) + choice.output_amount
                 growth.append(sum(portfolio.values()))
-            greedy_value = sum(portfolio.values())
+            greedy_value_in_target = 0.0
+            for asset_k, asset_amt in portfolio.items():
+                if asset_amt <= 0:
+                    continue
+                greedy_value_in_target += value_in_base(
+                    asset_k, asset_amt, tgt, graph, strategy_cfg
+                )
 
             st.subheader("Results")
             col1, col2 = st.columns(2)
             with col1:
                 st.metric(
-                    "Route to target",
-                    f"{route_value:.2f}" if route_result else "No path",
+                    f"Route value ({tgt})",
+                    f"{route_value_in_target:.2f}" if route_result else "No path",
                 )
             with col2:
-                st.metric("Greedy simulation", f"{greedy_value:.2f}")
-            if route_result and greedy_value > 0:
+                st.metric(f"Greedy value ({tgt})", f"{greedy_value_in_target:.2f}")
+            if route_result and greedy_value_in_target > 0:
                 diff = (
-                    ((greedy_value - route_value) / route_value) * 100
-                    if route_value
+                    (
+                        (greedy_value_in_target - route_value_in_target)
+                        / route_value_in_target
+                    )
+                    * 100
+                    if route_value_in_target
                     else 0
                 )
-                st.metric("Greedy vs Route", f"{diff:+.2f}%")
+                st.metric(f"Greedy vs Route ({tgt})", f"{diff:+.2f}%")
             if len(growth) > 1:
                 st.line_chart({"Greedy portfolio": growth})
 
